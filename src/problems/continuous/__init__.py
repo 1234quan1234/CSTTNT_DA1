@@ -1,7 +1,8 @@
 """
-Continuous optimization benchmark problems.
+Continuous optimization benchmark functions.
 
-Includes classic test functions: Sphere, Rosenbrock, Rastrigin, and Ackley.
+Classic test functions for evaluating continuous optimization algorithms.
+All functions are minimization problems with known global optima.
 """
 
 from .sphere import SphereProblem
@@ -9,4 +10,9 @@ from .rosenbrock import RosenbrockProblem
 from .rastrigin import RastriginProblem
 from .ackley import AckleyProblem
 
-__all__ = ['SphereProblem', 'RosenbrockProblem', 'RastriginProblem', 'AckleyProblem']
+__all__ = [
+    'SphereProblem',
+    'RosenbrockProblem', 
+    'RastriginProblem',
+    'AckleyProblem'
+]

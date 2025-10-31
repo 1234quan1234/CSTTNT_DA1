@@ -1,11 +1,16 @@
 """
-Discrete/combinatorial optimization problems.
+Discrete optimization problems.
 
-Includes TSP, Knapsack, and Graph Coloring problems.
+Classic combinatorial optimization problems for evaluating discrete
+optimization algorithms.
 """
 
 from .tsp import TSPProblem
 from .knapsack import KnapsackProblem
 from .graph_coloring import GraphColoringProblem
 
-__all__ = ['TSPProblem', 'KnapsackProblem', 'GraphColoringProblem']
+__all__ = [
+    'TSPProblem',
+    'KnapsackProblem',
+    'GraphColoringProblem'
+]

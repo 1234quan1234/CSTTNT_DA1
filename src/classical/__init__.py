@@ -1,18 +1,19 @@
 """
 Classical optimization algorithms package.
 
-Includes baseline algorithms: Hill Climbing, Simulated Annealing,
-Genetic Algorithm, and graph search algorithms (BFS, DFS, A*).
+This package contains traditional/baseline optimization algorithms for comparison.
 """
 
 from .hill_climbing import HillClimbingOptimizer
 from .simulated_annealing import SimulatedAnnealingOptimizer
 from .genetic_algorithm import GeneticAlgorithmOptimizer
-from . import graph_search
+from .graph_search import bfs, dfs, astar
 
 __all__ = [
     'HillClimbingOptimizer',
     'SimulatedAnnealingOptimizer',
     'GeneticAlgorithmOptimizer',
-    'graph_search'
+    'bfs',
+    'dfs',
+    'astar'
 ]

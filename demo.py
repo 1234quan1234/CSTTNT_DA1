@@ -14,13 +14,24 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np
-from src.problems.continuous.sphere import SphereProblem
-from src.problems.continuous.rastrigin import RastriginProblem
-from src.problems.discrete.tsp import TSPProblem
-from src.swarm.fa import FireflyContinuousOptimizer, FireflyDiscreteTSPOptimizer
-from src.classical.hill_climbing import HillClimbingOptimizer
-from src.classical.simulated_annealing import SimulatedAnnealingOptimizer
-from src.classical.genetic_algorithm import GeneticAlgorithmOptimizer
+
+# Error handling for imports
+try:
+    from src.problems.continuous.sphere import SphereProblem
+    from src.problems.continuous.rastrigin import RastriginProblem
+    from src.problems.discrete.tsp import TSPProblem
+    from src.swarm.fa import FireflyContinuousOptimizer, FireflyDiscreteTSPOptimizer
+    from src.classical.hill_climbing import HillClimbingOptimizer
+    from src.classical.simulated_annealing import SimulatedAnnealingOptimizer
+    from src.classical.genetic_algorithm import GeneticAlgorithmOptimizer
+except ImportError as e:
+    print(f"Error importing modules: {e}")
+    print("\nMake sure all required files exist:")
+    print("  - src/problems/continuous/*.py")
+    print("  - src/problems/discrete/*.py")
+    print("  - src/swarm/fa.py")
+    print("  - src/classical/*.py")
+    sys.exit(1)
 
 
 def demo_fa_continuous():
@@ -111,47 +122,60 @@ def demo_algorithm_comparison():
     print(f"Global optimum: 0.0 at origin")
     print("\nRunning algorithms...")
     
+    results = []
+    
     # Firefly Algorithm
-    print("  - Firefly Algorithm...")
-    fa = FireflyContinuousOptimizer(problem, n_fireflies=20, seed=42)
-    _, fa_fit, fa_hist, _ = fa.run(max_iter=max_iter)
+    try:
+        print("  - Firefly Algorithm...")
+        fa = FireflyContinuousOptimizer(problem, n_fireflies=20, seed=42)
+        _, fa_fit, fa_hist, _ = fa.run(max_iter=max_iter)
+        results.append(('Firefly Algorithm', fa_fit, fa_hist))
+    except Exception as e:
+        print(f"    ✗ Error: {e}")
     
     # Simulated Annealing
-    print("  - Simulated Annealing...")
-    sa = SimulatedAnnealingOptimizer(problem, initial_temp=100, seed=42)
-    _, sa_fit, sa_hist, _ = sa.run(max_iter=max_iter)
+    try:
+        print("  - Simulated Annealing...")
+        sa = SimulatedAnnealingOptimizer(problem, initial_temp=100, seed=42)
+        _, sa_fit, sa_hist, _ = sa.run(max_iter=max_iter)
+        results.append(('Simulated Annealing', sa_fit, sa_hist))
+    except Exception as e:
+        print(f"    ✗ Error: {e}")
     
     # Hill Climbing
-    print("  - Hill Climbing...")
-    hc = HillClimbingOptimizer(problem, num_neighbors=20, seed=42)
-    _, hc_fit, hc_hist, _ = hc.run(max_iter=max_iter)
+    try:
+        print("  - Hill Climbing...")
+        hc = HillClimbingOptimizer(problem, num_neighbors=20, seed=42)
+        _, hc_fit, hc_hist, _ = hc.run(max_iter=max_iter)
+        results.append(('Hill Climbing', hc_fit, hc_hist))
+    except Exception as e:
+        print(f"    ✗ Error: {e}")
     
     # Genetic Algorithm
-    print("  - Genetic Algorithm...")
-    ga = GeneticAlgorithmOptimizer(problem, pop_size=20, seed=42)
-    _, ga_fit, ga_hist, _ = ga.run(max_iter=max_iter)
+    try:
+        print("  - Genetic Algorithm...")
+        ga = GeneticAlgorithmOptimizer(problem, pop_size=20, seed=42)
+        _, ga_fit, ga_hist, _ = ga.run(max_iter=max_iter)
+        results.append(('Genetic Algorithm', ga_fit, ga_hist))
+    except Exception as e:
+        print(f"    ✗ Error: {e}")
     
     # Print results
-    print("\n" + "-" * 70)
-    print("RESULTS:")
-    print("-" * 70)
-    print(f"{'Algorithm':<25} {'Initial':<12} {'Final':<12} {'Improvement':<12}")
-    print("-" * 70)
-    print(f"{'Firefly Algorithm':<25} {fa_hist[0]:>11.6f} {fa_fit:>11.6f} {fa_hist[0]-fa_fit:>11.6f}")
-    print(f"{'Simulated Annealing':<25} {sa_hist[0]:>11.6f} {sa_fit:>11.6f} {sa_hist[0]-sa_fit:>11.6f}")
-    print(f"{'Hill Climbing':<25} {hc_hist[0]:>11.6f} {hc_fit:>11.6f} {hc_hist[0]-hc_fit:>11.6f}")
-    print(f"{'Genetic Algorithm':<25} {ga_hist[0]:>11.6f} {ga_fit:>11.6f} {ga_hist[0]-ga_fit:>11.6f}")
-    print("-" * 70)
-    
-    # Find best
-    results = [
-        ('Firefly Algorithm', fa_fit),
-        ('Simulated Annealing', sa_fit),
-        ('Hill Climbing', hc_fit),
-        ('Genetic Algorithm', ga_fit)
-    ]
-    best_algo, best_fitness = min(results, key=lambda x: x[1])
-    print(f"\n🏆 Best: {best_algo} with fitness {best_fitness:.6f}")
+    if results:
+        print("\n" + "-" * 70)
+        print("RESULTS:")
+        print("-" * 70)
+        print(f"{'Algorithm':<25} {'Initial':<12} {'Final':<12} {'Improvement':<12}")
+        print("-" * 70)
+        for name, final_fit, history in results:
+            print(f"{name:<25} {history[0]:>11.6f} {final_fit:>11.6f} {history[0]-final_fit:>11.6f}")
+        print("-" * 70)
+        
+        # Find best
+        best_algo, best_fitness, _ = min(results, key=lambda x: x[1])
+        print(f"\n🏆 Best: {best_algo} with fitness {best_fitness:.6f}")
+    else:
+        print("\n✗ No algorithms completed successfully")
 
 
 def demo_parameter_sensitivity():
@@ -172,22 +196,28 @@ def demo_parameter_sensitivity():
     gamma_values = [0.3, 0.5, 1.0, 2.0, 5.0]
     
     for gamma in gamma_values:
-        optimizer = FireflyContinuousOptimizer(
-            problem=problem,
-            n_fireflies=20,
-            alpha=0.2,
-            beta0=1.0,
-            gamma=gamma,
-            seed=42
-        )
-        _, fitness, history, _ = optimizer.run(max_iter=max_iter)
-        
-        # Measure convergence speed (iteration where 90% of improvement achieved)
-        total_improvement = history[0] - history[-1]
-        target = history[0] - 0.9 * total_improvement
-        conv_iter = next((i for i, h in enumerate(history) if h <= target), max_iter)
-        
-        print(f"{gamma:<10.1f} {fitness:<15.6f} {conv_iter}/{max_iter} iterations")
+        try:
+            optimizer = FireflyContinuousOptimizer(
+                problem=problem,
+                n_fireflies=20,
+                alpha=0.2,
+                beta0=1.0,
+                gamma=gamma,
+                seed=42
+            )
+            _, fitness, history, _ = optimizer.run(max_iter=max_iter)
+            
+            # Measure convergence speed (iteration where 90% of improvement achieved)
+            total_improvement = history[0] - history[-1]
+            if total_improvement > 0:
+                target = history[0] - 0.9 * total_improvement
+                conv_iter = next((i for i, h in enumerate(history) if h <= target), max_iter)
+            else:
+                conv_iter = max_iter
+            
+            print(f"{gamma:<10.1f} {fitness:<15.6f} {conv_iter}/{max_iter} iterations")
+        except Exception as e:
+            print(f"{gamma:<10.1f} Error: {e}")
     
     print("-" * 70)
     print("\nObservation: Optimal gamma depends on problem landscape.")
@@ -200,28 +230,35 @@ def main():
     print("  AI SEARCH & OPTIMIZATION FRAMEWORK - COMPREHENSIVE DEMO")
     print("=" * 70)
     
-    # Run demos
-    demo_fa_continuous()
-    demo_fa_discrete()
-    demo_algorithm_comparison()
-    demo_parameter_sensitivity()
+    try:
+        # Run demos
+        demo_fa_continuous()
+        demo_fa_discrete()
+        demo_algorithm_comparison()
+        demo_parameter_sensitivity()
+        
+        # Final summary
+        print("\n" + "=" * 70)
+        print("DEMO COMPLETE")
+        print("=" * 70)
+        print("\nWhat you've seen:")
+        print("  ✓ Firefly Algorithm on continuous problems (Sphere, Rastrigin)")
+        print("  ✓ Discrete FA on Traveling Salesman Problem")
+        print("  ✓ Comparison of multiple algorithms (FA, SA, HC, GA)")
+        print("  ✓ Parameter sensitivity analysis (gamma)")
+        print("\nNext steps:")
+        print("  • Visualize convergence curves using history_best")
+        print("  • Animate swarm movement using trajectory")
+        print("  • Run statistical benchmarks over multiple seeds")
+        print("  • Create notebooks for video demonstrations")
+        print("\nSee QUICKSTART.md for more usage examples!")
+        print("=" * 70 + "\n")
     
-    # Final summary
-    print("\n" + "=" * 70)
-    print("DEMO COMPLETE")
-    print("=" * 70)
-    print("\nWhat you've seen:")
-    print("  ✓ Firefly Algorithm on continuous problems (Sphere, Rastrigin)")
-    print("  ✓ Discrete FA on Traveling Salesman Problem")
-    print("  ✓ Comparison of 4 algorithms (FA, SA, HC, GA)")
-    print("  ✓ Parameter sensitivity analysis (gamma)")
-    print("\nNext steps:")
-    print("  • Visualize convergence curves using history_best")
-    print("  • Animate swarm movement using trajectory")
-    print("  • Run statistical benchmarks over multiple seeds")
-    print("  • Create notebooks for video demonstrations")
-    print("\nSee QUICKSTART.md for more usage examples!")
-    print("=" * 70 + "\n")
+    except Exception as e:
+        print(f"\n✗ Demo failed with error: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":

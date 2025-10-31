@@ -1,9 +1,12 @@
 """
 Swarm intelligence algorithms package.
 
-Currently includes Firefly Algorithm (FA) for both continuous and discrete optimization.
+This package contains nature-inspired swarm intelligence optimization algorithms.
 """
 
 from .fa import FireflyContinuousOptimizer, FireflyDiscreteTSPOptimizer
 
-__all__ = ['FireflyContinuousOptimizer', 'FireflyDiscreteTSPOptimizer']
+__all__ = [
+    'FireflyContinuousOptimizer',
+    'FireflyDiscreteTSPOptimizer'
+]
