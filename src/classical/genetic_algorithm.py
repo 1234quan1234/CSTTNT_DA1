@@ -143,6 +143,13 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         Partially Mapped Crossover (PMX) for TSP.
         
         Preserves relative order and creates valid permutations.
+        PMX is the standard crossover for permutation-based problems.
+        
+        References
+        ----------
+        Goldberg, D. E., & Lingle, R. (1985). Alleles, loci, and the traveling
+        salesman problem. In Proceedings of the 1st International Conference on
+        Genetic Algorithms (pp. 154-159).
         """
         n = len(parent1)
         
@@ -158,7 +165,7 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         offspring1[cx_point1:cx_point2] = parent1[cx_point1:cx_point2]
         offspring2[cx_point1:cx_point2] = parent2[cx_point1:cx_point2]
         
-        # Fill remaining positions
+        # Fill remaining positions using PMX mapping
         for i in range(n):
             if i < cx_point1 or i >= cx_point2:
                 # Fill offspring1
@@ -174,6 +181,10 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
                     idx = np.where(parent1 == offspring2[np.where(parent2 == candidate)[0][0]])[0][0]
                     candidate = parent1[idx]
                 offspring2[i] = candidate
+        
+        # Validate offspring are valid permutations
+        assert len(np.unique(offspring1)) == n, "PMX produced invalid permutation (offspring1)"
+        assert len(np.unique(offspring2)) == n, "PMX produced invalid permutation (offspring2)"
         
         return offspring1, offspring2
     
@@ -224,7 +235,9 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         """Mutation for Graph Coloring: change one node's color."""
         mutated = individual.copy()
         idx = self.rng.randint(len(mutated))
-        mutated[idx] = self.rng.randint(self.problem.num_colors)
+        # Access num_colors safely
+        num_colors = getattr(self.problem, 'num_colors', 10)  # fallback to 10
+        mutated[idx] = self.rng.randint(num_colors)
         return mutated
     
     def _mutate_continuous(self, individual: np.ndarray) -> np.ndarray:

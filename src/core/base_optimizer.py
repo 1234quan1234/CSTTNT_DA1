@@ -26,7 +26,39 @@ class BaseOptimizer(ABC):
     seed : int or None
         Random seed for reproducibility.
     rng : np.random.RandomState
-        Random number generator instance.
+        Random number generator instance. All subclasses MUST use self.rng
+        instead of np.random to ensure reproducible results.
+    
+    Notes
+    -----
+    **Reproducibility Requirement:**
+    All concrete optimizer implementations MUST:
+    1. Accept a `seed` parameter in __init__
+    2. Create self.rng = np.random.RandomState(seed)
+    3. Use ONLY self.rng for all random operations (never use np.random directly)
+    
+    This ensures that running the same optimizer with the same seed produces
+    identical results, which is critical for scientific reproducibility and
+    fair algorithm comparison.
+    
+    Examples
+    --------
+    Correct implementation:
+    >>> class MyOptimizer(BaseOptimizer):
+    ...     def __init__(self, problem, seed=None):
+    ...         self.problem = problem
+    ...         self.seed = seed
+    ...         self.rng = np.random.RandomState(seed)  # ✓ Correct
+    ...     
+    ...     def run(self, max_iter):
+    ...         x = self.rng.rand(10)  # ✓ Use self.rng
+    ...         # ...existing code...
+    
+    Incorrect implementation:
+    >>> class BadOptimizer(BaseOptimizer):
+    ...     def run(self, max_iter):
+    ...         x = np.random.rand(10)  # ✗ WRONG! Not reproducible
+    ...         # ...existing code...
     """
 
     @abstractmethod
@@ -53,11 +85,14 @@ class BaseOptimizer(ABC):
         
         best_fitness : float
             The objective function value of the best solution (minimization).
+            Lower values are better. For maximization problems, the problem's
+            evaluate() method should return the negated value.
         
         history_best : List[float]
             History of best fitness values at each iteration.
             Length should be max_iter, where history_best[t] is the best
-            fitness found up to iteration t.
+            fitness found up to and including iteration t.
+            This is used for plotting convergence curves.
         
         trajectory : List[np.ndarray]
             Trajectory of the population/solution at each iteration.
@@ -66,11 +101,16 @@ class BaseOptimizer(ABC):
               trajectory[t] has shape (population_size, dim) or (population_size, problem_size)
             - For single-solution algorithms (Hill Climbing, SA):
               trajectory[t] has shape (1, dim) or (1, problem_size)
+              (wrap solution in a list/array for consistency)
         
         Notes
         -----
         All algorithms are minimizers. If you have a maximization problem,
-        negate the objective function value.
+        the problem's evaluate() method should negate the objective function value.
+        
+        Reproducibility: When the same seed is used, running this method multiple
+        times should produce identical results (same best_solution, best_fitness,
+        and history_best values).
         
         Examples
         --------
@@ -79,5 +119,13 @@ class BaseOptimizer(ABC):
         >>> optimizer = SomeOptimizer(problem=problem, seed=42)
         >>> best_sol, best_fit, history, trajectory = optimizer.run(max_iter=100)
         >>> print(f"Best fitness: {best_fit}")
+        
+        Verify reproducibility:
+        >>> optimizer1 = SomeOptimizer(problem=problem, seed=42)
+        >>> optimizer2 = SomeOptimizer(problem=problem, seed=42)
+        >>> sol1, fit1, _, _ = optimizer1.run(max_iter=100)
+        >>> sol2, fit2, _, _ = optimizer2.run(max_iter=100)
+        >>> assert fit1 == fit2  # Should be identical
+        >>> assert np.allclose(sol1, sol2)  # Should be identical
         """
         pass

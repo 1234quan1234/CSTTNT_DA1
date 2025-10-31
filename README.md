@@ -196,6 +196,46 @@ print(f"SA best: {sa_fit:.6f}")
 print(f"GA best: {ga_fit:.6f}")
 ```
 
+## 📊 Return Format
+
+All optimizers follow the same interface (inherited from `BaseOptimizer`):
+
+```python
+best_solution, best_fitness, history_best, trajectory = optimizer.run(max_iter)
+```
+
+**Returns:**
+- `best_solution` (np.ndarray): Best solution found
+  - Continuous: shape (dim,) - real values
+  - TSP: shape (n_cities,) - permutation of city indices
+  - Knapsack: shape (n_items,) - binary 0/1 array
+  - Coloring: shape (n_nodes,) - color assignments
+- `best_fitness` (float): Best objective value (minimization)
+- `history_best` (List[float]): Best fitness value at each iteration
+- `trajectory` (List): Population/solution snapshots at each iteration
+  - For population methods: List of population arrays
+  - For single-solution methods: List of solution arrays
+
+**Reproducibility:**
+All algorithms accept a `seed` parameter (int or None) for reproducible results.
+When seed is set, results will be identical across runs **on the same machine**.
+
+```python
+# Same seed = same results
+optimizer1 = FireflyContinuousOptimizer(problem, seed=42)
+optimizer2 = FireflyContinuousOptimizer(problem, seed=42)
+
+sol1, fit1, _, _ = optimizer1.run(max_iter=100)
+sol2, fit2, _, _ = optimizer2.run(max_iter=100)
+
+assert fit1 == fit2  # ✓ Guaranteed
+assert np.allclose(sol1, sol2)  # ✓ Guaranteed
+```
+
+**Important:** All optimizers use `np.random.RandomState(seed)` internally
+instead of global `np.random` to ensure isolation and reproducibility.
+This follows scikit-learn best practices.
+
 ## 🔬 Algorithm Details
 
 ### Firefly Algorithm (Continuous)
@@ -247,30 +287,6 @@ For TSP, FA uses swap-based operators instead of continuous movement:
 | TSP | Discrete | N cities | Shortest tour | Permutation |
 | Knapsack | Discrete | N items | Max value ≤ capacity | Binary |
 | Graph Coloring | Discrete | N nodes | 0 conflicts | Integer colors |
-
-## 📊 Return Format
-
-All optimizers follow the same interface (inherited from `BaseOptimizer`):
-
-```python
-best_solution, best_fitness, history_best, trajectory = optimizer.run(max_iter)
-```
-
-**Returns:**
-- `best_solution` (np.ndarray): Best solution found
-  - Continuous: shape (dim,) - real values
-  - TSP: shape (n_cities,) - permutation of city indices
-  - Knapsack: shape (n_items,) - binary 0/1 array
-  - Coloring: shape (n_nodes,) - color assignments
-- `best_fitness` (float): Best objective value (minimization)
-- `history_best` (List[float]): Best fitness value at each iteration
-- `trajectory` (List): Population/solution snapshots at each iteration
-  - For population methods: List of population arrays
-  - For single-solution methods: List of solution arrays
-
-**Reproducibility:**
-All algorithms accept a `seed` parameter (int or None) for reproducible results.
-When seed is set, results will be identical across runs.
 
 ## 🧪 Testing
 
