@@ -74,6 +74,28 @@ python -m unittest test.test_continuous_problems.TestSphereProblem.test_optimum_
 - ✓ Genetic Algorithm with crossover and mutation
 - ✓ Convergence for all algorithms
 
+## Testing Visualizations
+
+While `src/utils/visualization.py` doesn't have automated tests, you can verify plots manually:
+
+```bash
+# Run demo script to generate all plots
+python demo.py
+
+# Check results/ folder for generated images
+ls -la results/
+```
+
+Expected output files:
+- `fa_sphere_convergence.png`
+- `fa_rastrigin_convergence.png`
+- `fa_rastrigin_trajectory.png`
+- `tsp_tour.png`
+- `tsp_convergence.png`
+- `algorithm_comparison.png`
+- `algorithm_comparison_log.png`
+- `parameter_sensitivity_gamma.png`
+
 ## Adding New Tests
 
 To add tests for a new component:
@@ -122,7 +144,15 @@ These tests can be integrated into CI/CD pipelines:
 
 **Missing dependencies**: Install required packages:
 ```bash
-pip install numpy
+pip install -r requirements.txt
+# Or use conda
+conda env create -f environment.yml
+```
+
+**Matplotlib backend errors**: If plots don't display, try:
+```python
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 ```
 
 **Failed tests**: Check the error message and traceback for details. Ensure all source files are present and correct.

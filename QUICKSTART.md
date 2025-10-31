@@ -8,7 +8,26 @@ cd /home/bui-anh-quan/CSTTNT_DA1
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Or use conda environment
+conda env create -f environment.yml
+conda activate aisearch
 ```
+
+## Quick Demo
+
+Run the comprehensive demo to see all features:
+
+```bash
+python demo.py
+```
+
+This generates plots in `results/` folder demonstrating:
+- Convergence curves
+- Algorithm comparisons
+- TSP tour visualization
+- Parameter sensitivity analysis
+- Swarm trajectory plots
 
 ## Testing Your Implementation
 
@@ -137,6 +156,75 @@ print(f"SA:          {sa_length:.4f}")
 print(f"GA:          {ga_length:.4f}")
 ```
 
+## Creating Visualizations
+
+The framework includes ready-to-use visualization utilities:
+
+```python
+import sys
+sys.path.append('/home/bui-anh-quan/CSTTNT_DA1')
+
+from src.problems.continuous.rastrigin import RastriginProblem
+from src.swarm.fa import FireflyContinuousOptimizer
+from src.utils.visualization import plot_convergence, plot_comparison
+
+# Run optimization
+problem = RastriginProblem(dim=5)
+optimizer = FireflyContinuousOptimizer(problem, n_fireflies=20, seed=42)
+best_sol, best_fit, history, trajectory = optimizer.run(max_iter=100)
+
+# Plot convergence
+plot_convergence(
+    history,
+    title="FA Convergence on Rastrigin",
+    save_path="my_convergence.png",
+    show=True
+)
+
+# Compare multiple algorithms
+from src.classical.simulated_annealing import SimulatedAnnealingOptimizer
+
+sa = SimulatedAnnealingOptimizer(problem, seed=42)
+_, _, sa_hist, _ = sa.run(max_iter=100)
+
+plot_comparison(
+    {'FA': history, 'SA': sa_hist},
+    title="FA vs SA",
+    save_path="comparison.png",
+    show=True
+)
+```
+
+### Available Visualization Functions
+
+From `src.utils.visualization`:
+
+- `plot_convergence()` - Single algorithm convergence curve
+- `plot_comparison()` - Multiple algorithms comparison (linear/log scale)
+- `plot_trajectory_2d()` - Swarm movement on 2D landscape
+- `plot_tsp_tour()` - TSP tour visualization with city connections
+- `plot_parameter_sensitivity()` - Parameter tuning results
+
+## Interactive Notebooks
+
+For interactive exploration, use Jupyter notebooks:
+
+```bash
+# Start JupyterLab
+jupyter lab
+
+# Open notebook
+# notebooks/fa_visualization.ipynb
+```
+
+The notebook includes:
+- ✓ FA on 2D Sphere with contour plots
+- ✓ FA on multimodal Rastrigin landscape
+- ✓ Algorithm comparison charts
+- ✓ TSP tour visualization
+- ✓ Parameter sensitivity analysis
+- ✓ Optional: animated swarm movement
+
 ## Parameter Tuning Guide
 
 ### Firefly Algorithm (Continuous)
@@ -225,11 +313,19 @@ src/
 ├── swarm/
 │   └── fa.py              # Firefly Algorithm (continuous & TSP)
 │
-└── classical/
-    ├── hill_climbing.py
-    ├── simulated_annealing.py
-    ├── genetic_algorithm.py
-    └── graph_search.py     # BFS, DFS, A*
+├── classical/
+│   ├── hill_climbing.py
+│   ├── simulated_annealing.py
+│   ├── genetic_algorithm.py
+│   └── graph_search.py     # BFS, DFS, A*
+│
+└── utils/
+    └── visualization.py    # Plotting utilities
+
+test/                       # Unit tests
+notebooks/                  # Interactive demos
+results/                    # Generated plots (auto-created)
+demo.py                     # Comprehensive demo script
 ```
 
 ## Key Concepts

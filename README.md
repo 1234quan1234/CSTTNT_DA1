@@ -53,14 +53,35 @@ CSTTNT_DA1/
 │   ├── swarm/                     # Swarm intelligence algorithms
 │   │   └── fa.py                  # Firefly Algorithm (continuous & discrete)
 │   │
-│   └── classical/                 # Classical baseline algorithms
-│       ├── hill_climbing.py
-│       ├── simulated_annealing.py
-│       ├── genetic_algorithm.py
-│       └── graph_search.py        # BFS, DFS, A*
+│   ├── classical/                 # Classical baseline algorithms
+│   │   ├── hill_climbing.py
+│   │   ├── simulated_annealing.py
+│   │   ├── genetic_algorithm.py
+│   │   └── graph_search.py        # BFS, DFS, A*
+│   │
+│   └── utils/                     # Utility modules
+│       └── visualization.py       # Plotting and visualization functions
 │
+├── test/                          # Unit tests
+│   ├── test_continuous_problems.py
+│   ├── test_tsp_problem.py
+│   ├── test_firefly_algorithm.py
+│   ├── test_classical_algorithms.py
+│   ├── run_all_tests.py
+│   └── README.md
+│
+├── notebooks/                     # Jupyter notebooks
+│   └── fa_visualization.ipynb     # Interactive visualization demos
+│
+├── results/                       # Output directory (auto-created)
+│   ├── *.png                      # Generated plots
+│   └── *.csv                      # Benchmark results
+│
+├── demo.py                        # Comprehensive demo script
+├── environment.yml                # Conda environment
 ├── requirements.txt               # Python dependencies
-└── README.md                      # This file
+├── README.md                      # This file
+└── QUICKSTART.md                  # Quick start guide
 ```
 
 ## 🚀 Getting Started
@@ -94,22 +115,34 @@ pip install -r requirements.txt
 
 ### Quick Test
 
-Each module has a `__main__` block for testing. Run any module directly:
+Run the comprehensive demo script:
+
+```bash
+python demo.py
+```
+
+This will:
+- Run FA on Sphere and Rastrigin functions
+- Run FA on TSP
+- Compare FA with SA, HC, and GA
+- Perform parameter sensitivity analysis
+- Generate visualization plots in `results/` folder
+
+Or test individual modules:
 
 ```bash
 # Test Firefly Algorithm
 python src/swarm/fa.py
 
-# Test a problem
+# Test problems
 python src/problems/continuous/sphere.py
+python src/problems/discrete/tsp.py
 
-# Test classical algorithms
-python src/classical/hill_climbing.py
-python src/classical/simulated_annealing.py
-python src/classical/genetic_algorithm.py
+# Test visualization utilities
+python src/utils/visualization.py
 
-# Test graph search
-python src/classical/graph_search.py
+# Run all unit tests
+python test/run_all_tests.py
 ```
 
 ## 💡 Usage Examples
