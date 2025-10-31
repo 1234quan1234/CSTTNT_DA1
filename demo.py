@@ -7,6 +7,7 @@ This script demonstrates:
 2. Running FA on TSP
 3. Comparing multiple algorithms
 4. Parameter sensitivity analysis
+5. Visualizing results
 """
 
 import sys
@@ -14,6 +15,7 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np
+import math
 
 # Error handling for imports
 try:
@@ -24,6 +26,10 @@ try:
     from src.classical.hill_climbing import HillClimbingOptimizer
     from src.classical.simulated_annealing import SimulatedAnnealingOptimizer
     from src.classical.genetic_algorithm import GeneticAlgorithmOptimizer
+    from src.utils.visualization import (
+        plot_convergence, plot_comparison, plot_trajectory_2d,
+        plot_tsp_tour, plot_parameter_sensitivity
+    )
 except ImportError as e:
     print(f"Error importing modules: {e}")
     print("\nMake sure all required files exist:")
@@ -31,6 +37,7 @@ except ImportError as e:
     print("  - src/problems/discrete/*.py")
     print("  - src/swarm/fa.py")
     print("  - src/classical/*.py")
+    print("  - src/utils/visualization.py")
     sys.exit(1)
 
 
@@ -58,6 +65,14 @@ def demo_fa_continuous():
     print(f"Improvement:     {history[0] - history[-1]:.6f}")
     print(f"Best solution:   {best_sol}")
     
+    # Visualize convergence
+    plot_convergence(
+        history,
+        title="FA on Sphere Function (dim=5)",
+        save_path="results/fa_sphere_convergence.png",
+        show=False
+    )
+    
     # Rastrigin function (hard, multimodal)
     print("\n[1.2] Rastrigin Function (dim=5)")
     print("-" * 70)
@@ -70,11 +85,28 @@ def demo_fa_continuous():
         gamma=0.5,  # Lower for more global search
         seed=42
     )
-    best_sol, best_fit, history, _ = optimizer.run(max_iter=100)
+    best_sol, best_fit, history, trajectory = optimizer.run(max_iter=100)
     print(f"Initial fitness: {history[0]:.6f}")
     print(f"Final fitness:   {history[-1]:.6f}")
     print(f"Improvement:     {history[0] - history[-1]:.6f}")
     print(f"Global optimum:  0.0 at origin")
+    
+    # Visualize convergence and trajectory
+    plot_convergence(
+        history,
+        title="FA on Rastrigin Function (dim=5)",
+        save_path="results/fa_rastrigin_convergence.png",
+        show=False
+    )
+    
+    if len(trajectory) > 0:
+        plot_trajectory_2d(
+            trajectory,
+            title="Firefly Swarm Trajectory on Rastrigin (First 2 Dims)",
+            save_path="results/fa_rastrigin_trajectory.png",
+            show=False,
+            sample_rate=5
+        )
 
 
 def demo_fa_discrete():
@@ -89,7 +121,7 @@ def demo_fa_discrete():
     problem = TSPProblem(coords)
     
     print(f"\nTSP Instance: {problem.num_cities} cities")
-    print(f"Search space: {np.math.factorial(problem.num_cities):,} possible tours")
+    print(f"Search space: {math.factorial(problem.num_cities):,} possible tours")
     
     optimizer = FireflyDiscreteTSPOptimizer(
         problem=problem,
@@ -106,6 +138,23 @@ def demo_fa_discrete():
     print(f"Improvement:              {history[0] - history[-1]:.4f}")
     print(f"Improvement %:            {100 * (history[0] - history[-1]) / history[0]:.2f}%")
     print(f"Best tour: {best_tour}")
+    
+    # Visualize TSP tour and convergence
+    plot_tsp_tour(
+        coords,
+        best_tour,
+        title=f"Best TSP Tour (Length: {best_length:.2f})",
+        save_path="results/tsp_tour.png",
+        show=False
+    )
+    
+    plot_convergence(
+        history,
+        title="FA on TSP - Convergence",
+        ylabel="Tour Length",
+        save_path="results/tsp_convergence.png",
+        show=False
+    )
 
 
 def demo_algorithm_comparison():
@@ -123,6 +172,7 @@ def demo_algorithm_comparison():
     print("\nRunning algorithms...")
     
     results = []
+    histories_dict = {}
     
     # Firefly Algorithm
     try:
@@ -130,6 +180,7 @@ def demo_algorithm_comparison():
         fa = FireflyContinuousOptimizer(problem, n_fireflies=20, seed=42)
         _, fa_fit, fa_hist, _ = fa.run(max_iter=max_iter)
         results.append(('Firefly Algorithm', fa_fit, fa_hist))
+        histories_dict['Firefly Algorithm'] = fa_hist
     except Exception as e:
         print(f"    ✗ Error: {e}")
     
@@ -139,6 +190,7 @@ def demo_algorithm_comparison():
         sa = SimulatedAnnealingOptimizer(problem, initial_temp=100, seed=42)
         _, sa_fit, sa_hist, _ = sa.run(max_iter=max_iter)
         results.append(('Simulated Annealing', sa_fit, sa_hist))
+        histories_dict['Simulated Annealing'] = sa_hist
     except Exception as e:
         print(f"    ✗ Error: {e}")
     
@@ -148,6 +200,7 @@ def demo_algorithm_comparison():
         hc = HillClimbingOptimizer(problem, num_neighbors=20, seed=42)
         _, hc_fit, hc_hist, _ = hc.run(max_iter=max_iter)
         results.append(('Hill Climbing', hc_fit, hc_hist))
+        histories_dict['Hill Climbing'] = hc_hist
     except Exception as e:
         print(f"    ✗ Error: {e}")
     
@@ -157,6 +210,7 @@ def demo_algorithm_comparison():
         ga = GeneticAlgorithmOptimizer(problem, pop_size=20, seed=42)
         _, ga_fit, ga_hist, _ = ga.run(max_iter=max_iter)
         results.append(('Genetic Algorithm', ga_fit, ga_hist))
+        histories_dict['Genetic Algorithm'] = ga_hist
     except Exception as e:
         print(f"    ✗ Error: {e}")
     
@@ -174,6 +228,22 @@ def demo_algorithm_comparison():
         # Find best
         best_algo, best_fitness, _ = min(results, key=lambda x: x[1])
         print(f"\n🏆 Best: {best_algo} with fitness {best_fitness:.6f}")
+        
+        # Visualize comparison
+        plot_comparison(
+            histories_dict,
+            title="Algorithm Comparison on Rastrigin Function",
+            save_path="results/algorithm_comparison.png",
+            show=False
+        )
+        
+        plot_comparison(
+            histories_dict,
+            title="Algorithm Comparison (Log Scale)",
+            save_path="results/algorithm_comparison_log.png",
+            show=False,
+            log_scale=True
+        )
     else:
         print("\n✗ No algorithms completed successfully")
 
@@ -194,6 +264,7 @@ def demo_parameter_sensitivity():
     print("-" * 70)
     
     gamma_values = [0.3, 0.5, 1.0, 2.0, 5.0]
+    fitness_values = []
     
     for gamma in gamma_values:
         try:
@@ -206,6 +277,7 @@ def demo_parameter_sensitivity():
                 seed=42
             )
             _, fitness, history, _ = optimizer.run(max_iter=max_iter)
+            fitness_values.append(fitness)
             
             # Measure convergence speed (iteration where 90% of improvement achieved)
             total_improvement = history[0] - history[-1]
@@ -218,10 +290,25 @@ def demo_parameter_sensitivity():
             print(f"{gamma:<10.1f} {fitness:<15.6f} {conv_iter}/{max_iter} iterations")
         except Exception as e:
             print(f"{gamma:<10.1f} Error: {e}")
+            fitness_values.append(None)
     
     print("-" * 70)
     print("\nObservation: Optimal gamma depends on problem landscape.")
     print("For Rastrigin (multimodal), lower gamma often performs better.")
+    
+    # Visualize parameter sensitivity
+    valid_gammas = [g for g, f in zip(gamma_values, fitness_values) if f is not None]
+    valid_fitness = [f for f in fitness_values if f is not None]
+    
+    if valid_gammas:
+        plot_parameter_sensitivity(
+            valid_gammas,
+            valid_fitness,
+            param_name="Gamma (Light Absorption)",
+            title="FA Parameter Sensitivity: Gamma on Rastrigin",
+            save_path="results/parameter_sensitivity_gamma.png",
+            show=False
+        )
 
 
 def main():
@@ -229,6 +316,9 @@ def main():
     print("\n" + "=" * 70)
     print("  AI SEARCH & OPTIMIZATION FRAMEWORK - COMPREHENSIVE DEMO")
     print("=" * 70)
+    
+    # Create results directory
+    os.makedirs("results", exist_ok=True)
     
     try:
         # Run demos
@@ -246,11 +336,21 @@ def main():
         print("  ✓ Discrete FA on Traveling Salesman Problem")
         print("  ✓ Comparison of multiple algorithms (FA, SA, HC, GA)")
         print("  ✓ Parameter sensitivity analysis (gamma)")
+        print("  ✓ Visualization of convergence, trajectories, and comparisons")
+        print("\nVisualization files saved to:")
+        print("  • results/fa_sphere_convergence.png")
+        print("  • results/fa_rastrigin_convergence.png")
+        print("  • results/fa_rastrigin_trajectory.png")
+        print("  • results/tsp_tour.png")
+        print("  • results/tsp_convergence.png")
+        print("  • results/algorithm_comparison.png")
+        print("  • results/algorithm_comparison_log.png")
+        print("  • results/parameter_sensitivity_gamma.png")
         print("\nNext steps:")
-        print("  • Visualize convergence curves using history_best")
-        print("  • Animate swarm movement using trajectory")
+        print("  • Customize visualizations in src/utils/visualization.py")
+        print("  • Create animations using matplotlib.animation")
         print("  • Run statistical benchmarks over multiple seeds")
-        print("  • Create notebooks for video demonstrations")
+        print("  • Create notebooks for interactive demonstrations")
         print("\nSee QUICKSTART.md for more usage examples!")
         print("=" * 70 + "\n")
     

@@ -26,30 +26,32 @@ class TestSphereProblem(unittest.TestCase):
     
     def test_bounds(self):
         """Test problem bounds."""
-        self.assertEqual(len(self.problem.lower_bound), 5)
-        self.assertEqual(len(self.problem.upper_bound), 5)
-        self.assertTrue(all(self.problem.lower_bound == -100))
-        self.assertTrue(all(self.problem.upper_bound == 100))
+        self.assertEqual(len(self.problem.lower), 5)
+        self.assertEqual(len(self.problem.upper), 5)
+        self.assertTrue(all(self.problem.lower == -5.12))
+        self.assertTrue(all(self.problem.upper == 5.12))
     
     def test_optimum_value(self):
         """Test that optimum (origin) gives zero fitness."""
         optimum = np.zeros(5)
-        fitness = self.problem.fitness(optimum)
+        fitness = self.problem.evaluate(optimum)
         self.assertAlmostEqual(fitness, 0.0, places=10)
     
     def test_fitness_values(self):
         """Test fitness calculation."""
         x = np.array([1, 2, 3, 4, 5])
         expected = 1 + 4 + 9 + 16 + 25  # sum of squares
-        fitness = self.problem.fitness(x)
+        fitness = self.problem.evaluate(x)
         self.assertAlmostEqual(fitness, expected, places=10)
     
     def test_random_solution(self):
         """Test random solution generation."""
-        solution = self.problem.random_solution()
+        rng = np.random.RandomState(42)
+        solutions = self.problem.init_solution(rng, n=1)
+        solution = solutions[0]
         self.assertEqual(len(solution), 5)
-        self.assertTrue(all(solution >= -100))
-        self.assertTrue(all(solution <= 100))
+        self.assertTrue(all(solution >= -5.12))
+        self.assertTrue(all(solution <= 5.12))
 
 
 class TestRastriginProblem(unittest.TestCase):
@@ -66,7 +68,7 @@ class TestRastriginProblem(unittest.TestCase):
     def test_optimum_value(self):
         """Test that optimum (origin) gives zero fitness."""
         optimum = np.zeros(3)
-        fitness = self.problem.fitness(optimum)
+        fitness = self.problem.evaluate(optimum)
         self.assertAlmostEqual(fitness, 0.0, places=10)
     
     def test_fitness_positive(self):
@@ -74,12 +76,14 @@ class TestRastriginProblem(unittest.TestCase):
         rng = np.random.RandomState(42)
         for _ in range(10):
             x = rng.randn(3) * 5
-            fitness = self.problem.fitness(x)
+            fitness = self.problem.evaluate(x)
             self.assertGreaterEqual(fitness, 0.0)
     
     def test_random_solution(self):
         """Test random solution generation."""
-        solution = self.problem.random_solution()
+        rng = np.random.RandomState(42)
+        solutions = self.problem.init_solution(rng, n=1)
+        solution = solutions[0]
         self.assertEqual(len(solution), 3)
         self.assertTrue(all(solution >= -5.12))
         self.assertTrue(all(solution <= 5.12))

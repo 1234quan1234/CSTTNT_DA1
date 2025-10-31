@@ -7,6 +7,6 @@ optimization algorithms.
 
 from . import continuous
 from . import discrete
-from .problem_base import ProblemBase
 
+__all__ = ['continuous', 'discrete']
 __all__ = ['continuous', 'discrete', 'ProblemBase']
