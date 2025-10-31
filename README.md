@@ -358,7 +358,7 @@ python src/classical/graph_search.py
 
 ## 📝 License
 
-This project is for educational purposes as part of the CSTTNT course at [University Name].
+This project is for educational purposes as part of the CSTTNT course at HCMUS.
 
 ---
 
