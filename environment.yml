@@ -1,0 +1,20 @@
+name: aisearch
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - networkx
+  - pyyaml
+  - tqdm
+  - numba              # optional, tăng tốc
+  - jupyterlab
+  - ipykernel
+  - pip
+  - pip:
+      - ruff
+      - black
+      - pytest
