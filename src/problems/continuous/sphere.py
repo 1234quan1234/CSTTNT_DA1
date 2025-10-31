@@ -10,12 +10,10 @@ References
 """
 
 import numpy as np
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../../'))  # ✓ Changed from ../../
-
-from core.problem_base import ProblemBase
 from typing import Literal
+
+# Use relative import instead of absolute
+from ...core.problem_base import ProblemBase
 
 
 class SphereProblem(ProblemBase):
@@ -179,5 +177,7 @@ if __name__ == "__main__":
     x_clipped = problem.clip(x_out)
     print(f"\nClipping [{10.0}, {-10.0}]: {x_clipped}")
     print(f"Within bounds: {np.all(x_clipped >= problem.lower) and np.all(x_clipped <= problem.upper)}")
+    
+    print("\nSphere problem test passed!")
     
     print("\nSphere problem test passed!")

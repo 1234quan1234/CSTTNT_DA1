@@ -10,13 +10,11 @@ References
 """
 
 import numpy as np
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
-
-from core.base_optimizer import BaseOptimizer
-from core.problem_base import ProblemBase
 from typing import List, Tuple
+
+# Use relative imports
+from ..core.base_optimizer import BaseOptimizer
+from ..core.problem_base import ProblemBase
 
 
 class HillClimbingOptimizer(BaseOptimizer):
@@ -286,5 +284,7 @@ if __name__ == "__main__":
     print(f"Valid coloring: {history_gc[-1] == 0}")
     
     print("\n" + "=" * 60)
+    print("All Hill Climbing tests completed!")
+    print("=" * 60)
     print("All Hill Climbing tests completed!")
     print("=" * 60)

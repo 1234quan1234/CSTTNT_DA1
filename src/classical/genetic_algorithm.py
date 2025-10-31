@@ -10,13 +10,12 @@ References
 """
 
 import numpy as np
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
+from typing import List, Tuple
 
-from core.base_optimizer import BaseOptimizer
-from core.problem_base import ProblemBase
-from core.utils import get_best_solution
+# Use relative imports
+from ..core.base_optimizer import BaseOptimizer
+from ..core.problem_base import ProblemBase
+from ..core.utils import get_best_solution
 from typing import List, Tuple, Literal
 
 
@@ -444,4 +443,5 @@ if __name__ == "__main__":
     
     print("\n" + "=" * 60)
     print("All Genetic Algorithm tests completed!")
+    print("=" * 60)
     print("=" * 60)

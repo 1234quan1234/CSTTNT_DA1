@@ -12,14 +12,12 @@ References
 """
 
 import numpy as np
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
-
-from core.base_optimizer import BaseOptimizer
-from core.problem_base import ProblemBase
-from core.utils import get_best_solution, compute_brightness, euclidean_distance_matrix
 from typing import List, Tuple
+
+# Use relative imports
+from ..core.base_optimizer import BaseOptimizer
+from ..core.problem_base import ProblemBase
+from ..core.utils import get_best_solution, compute_brightness, euclidean_distance_matrix
 
 
 class FireflyContinuousOptimizer(BaseOptimizer):
@@ -570,5 +568,7 @@ if __name__ == "__main__":
         print("✗ Reproducibility test FAILED")
     
     print("\n" + "=" * 70)
+    print("All Firefly Algorithm tests completed successfully!")
+    print("=" * 70)
     print("All Firefly Algorithm tests completed successfully!")
     print("=" * 70)

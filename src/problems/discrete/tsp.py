@@ -12,12 +12,10 @@ References
 """
 
 import numpy as np
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../../'))
-
-from core.problem_base import ProblemBase  # ✓ Đúng đường dẫn
 from typing import Literal
+
+# Use relative import
+from ...core.problem_base import ProblemBase
 
 
 class TSPProblem(ProblemBase):

@@ -10,12 +10,10 @@ References
 """
 
 import numpy as np
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../../'))  # ✓ Changed from ../../
-
-from core.problem_base import ProblemBase
 from typing import Literal
+
+# Use relative import
+from ...core.problem_base import ProblemBase
 
 
 class KnapsackProblem(ProblemBase):
@@ -255,5 +253,7 @@ if __name__ == "__main__":
         value = np.sum(sol * values)
         fitness = problem.evaluate(sol)
         print(f"  Sol {i}: {sol} -> weight={weight:.1f}, value={value:.1f}, fitness={fitness:.1f}")
+    
+    print("\nKnapsack problem test passed!")
     
     print("\nKnapsack problem test passed!")

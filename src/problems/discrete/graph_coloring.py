@@ -11,12 +11,10 @@ References
 """
 
 import numpy as np
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../../'))  # ✓ Changed from ../../
-
-from core.problem_base import ProblemBase
 from typing import List, Tuple, Literal
+
+# Use relative import
+from ...core.problem_base import ProblemBase
 
 
 class GraphColoringProblem(ProblemBase):
@@ -211,5 +209,7 @@ if __name__ == "__main__":
     conflicts_random = problem_random.evaluate(coloring_random)
     print(f"Random 10-node graph with {len(edges_random)} edges")
     print(f"Random 4-coloring: conflicts = {conflicts_random}")
+    
+    print("\nGraph Coloring problem test passed!")
     
     print("\nGraph Coloring problem test passed!")

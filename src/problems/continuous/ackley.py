@@ -11,12 +11,10 @@ References
 """
 
 import numpy as np
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../../'))  # ✓ Changed from ../../
-
-from core.problem_base import ProblemBase
 from typing import Literal
+
+# Use relative import
+from ...core.problem_base import ProblemBase
 
 
 class AckleyProblem(ProblemBase):
@@ -218,5 +216,7 @@ if __name__ == "__main__":
     print(f"\nGenerated 5 random solutions, shape: {init_pop.shape}")
     print(f"Sample solution: {init_pop[0]}")
     print(f"All within bounds: {np.all(init_pop >= problem.lower) and np.all(init_pop <= problem.upper)}")
+    
+    print("\nAckley problem test passed!")
     
     print("\nAckley problem test passed!")

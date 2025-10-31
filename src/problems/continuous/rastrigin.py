@@ -10,12 +10,10 @@ References
 """
 
 import numpy as np
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../../'))  # ✓ Changed from ../../
-
-from core.problem_base import ProblemBase
 from typing import Literal
+
+# Use relative import
+from ...core.problem_base import ProblemBase
 
 
 class RastriginProblem(ProblemBase):
@@ -188,5 +186,7 @@ if __name__ == "__main__":
     # Verify multimodality
     print(f"\nRastrigin is highly multimodal with many local minima.")
     print(f"Global minimum at origin: f([0,0]) = {f_opt}")
+    
+    print("\nRastrigin problem test passed!")
     
     print("\nRastrigin problem test passed!")
