@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Simple demo script to showcase the optimization framework.
+Comprehensive demo script for Firefly Algorithm on all problems.
 
 This script demonstrates:
-1. Running FA on continuous problems
-2. Running FA on TSP
-3. Comparing multiple algorithms
+1. Running FA on ALL continuous problems (Sphere, Rosenbrock, Rastrigin, Ackley)
+2. Running FA on ALL discrete problems (TSP, Knapsack, Graph Coloring)
+3. Comparing FA with classical algorithms
 4. Parameter sensitivity analysis
-5. Visualizing results
+5. Comprehensive visualization
 """
 
 import sys
@@ -20,8 +20,12 @@ import math
 # Error handling for imports
 try:
     from src.problems.continuous.sphere import SphereProblem
+    from src.problems.continuous.rosenbrock import RosenbrockProblem
     from src.problems.continuous.rastrigin import RastriginProblem
+    from src.problems.continuous.ackley import AckleyProblem
     from src.problems.discrete.tsp import TSPProblem
+    from src.problems.discrete.knapsack import KnapsackProblem
+    from src.problems.discrete.graph_coloring import GraphColoringProblem
     from src.swarm.fa import FireflyContinuousOptimizer, FireflyDiscreteTSPOptimizer
     from src.classical.hill_climbing import HillClimbingOptimizer
     from src.classical.simulated_annealing import SimulatedAnnealingOptimizer
@@ -41,120 +45,268 @@ except ImportError as e:
     sys.exit(1)
 
 
-def demo_fa_continuous():
-    """Demo 1: Firefly Algorithm on continuous problems."""
+def demo_fa_all_continuous():
+    """Demo 1: Firefly Algorithm on ALL continuous problems."""
     print("=" * 70)
-    print("DEMO 1: Firefly Algorithm on Continuous Problems")
+    print("DEMO 1: Firefly Algorithm on ALL Continuous Problems")
     print("=" * 70)
     
-    # Sphere function (easy, unimodal)
-    print("\n[1.1] Sphere Function (dim=5)")
-    print("-" * 70)
-    problem = SphereProblem(dim=5)
-    optimizer = FireflyContinuousOptimizer(
-        problem=problem,
-        n_fireflies=20,
-        alpha=0.2,
-        beta0=1.0,
-        gamma=1.0,
-        seed=42
-    )
-    best_sol, best_fit, history, _ = optimizer.run(max_iter=50)
-    print(f"Initial fitness: {history[0]:.6f}")
-    print(f"Final fitness:   {history[-1]:.6f}")
-    print(f"Improvement:     {history[0] - history[-1]:.6f}")
-    print(f"Best solution:   {best_sol}")
+    from src.problems.continuous.sphere import SphereProblem
+    from src.problems.continuous.rosenbrock import RosenbrockProblem
+    from src.problems.continuous.rastrigin import RastriginProblem
+    from src.problems.continuous.ackley import AckleyProblem
     
-    # Visualize convergence
-    plot_convergence(
-        history,
-        title="FA on Sphere Function (dim=5)",
-        save_path="results/fa_sphere_convergence.png",
-        show=False
-    )
+    dim = 10  # Test dimension
+    max_iter = 100
+    seed = 42
     
-    # Rastrigin function (hard, multimodal)
-    print("\n[1.2] Rastrigin Function (dim=5)")
-    print("-" * 70)
-    problem = RastriginProblem(dim=5)
-    optimizer = FireflyContinuousOptimizer(
-        problem=problem,
-        n_fireflies=30,
-        alpha=0.3,  # Higher for multimodal
-        beta0=1.0,
-        gamma=0.5,  # Lower for more global search
-        seed=42
-    )
-    best_sol, best_fit, history, trajectory = optimizer.run(max_iter=100)
-    print(f"Initial fitness: {history[0]:.6f}")
-    print(f"Final fitness:   {history[-1]:.6f}")
-    print(f"Improvement:     {history[0] - history[-1]:.6f}")
-    print(f"Global optimum:  0.0 at origin")
+    problems = [
+        ("Sphere", SphereProblem(dim=dim), {"n_fireflies": 20, "alpha": 0.2, "gamma": 1.0}),
+        ("Rosenbrock", RosenbrockProblem(dim=dim), {"n_fireflies": 30, "alpha": 0.25, "gamma": 0.8}),
+        ("Rastrigin", RastriginProblem(dim=dim), {"n_fireflies": 30, "alpha": 0.3, "gamma": 0.5}),
+        ("Ackley", AckleyProblem(dim=dim), {"n_fireflies": 25, "alpha": 0.3, "gamma": 0.6}),
+    ]
     
-    # Visualize convergence and trajectory
-    plot_convergence(
-        history,
-        title="FA on Rastrigin Function (dim=5)",
-        save_path="results/fa_rastrigin_convergence.png",
-        show=False
-    )
+    results = []
     
-    if len(trajectory) > 0:
-        plot_trajectory_2d(
-            trajectory,
-            title="Firefly Swarm Trajectory on Rastrigin (First 2 Dims)",
-            save_path="results/fa_rastrigin_trajectory.png",
-            show=False,
-            sample_rate=5
+    for name, problem, params in problems:
+        print(f"\n[{name}]")
+        print("-" * 70)
+        
+        optimizer = FireflyContinuousOptimizer(
+            problem=problem,
+            n_fireflies=params["n_fireflies"],
+            alpha=params["alpha"],
+            beta0=1.0,
+            gamma=params["gamma"],
+            seed=seed
         )
-
-
-def demo_fa_discrete():
-    """Demo 2: Firefly Algorithm on TSP."""
+        
+        best_sol, best_fit, history, trajectory = optimizer.run(max_iter=max_iter)
+        
+        print(f"  Initial fitness: {history[0]:.6f}")
+        print(f"  Final fitness:   {history[-1]:.6f}")
+        print(f"  Improvement:     {history[0] - history[-1]:.6f}")
+        print(f"  Best solution:   {best_sol[:3]}... (showing first 3 dims)")
+        
+        results.append({
+            'Problem': name,
+            'Initial': history[0],
+            'Final': history[-1],
+            'Improvement': history[0] - history[-1],
+            'History': history
+        })
+        
+        # Visualize convergence
+        plot_convergence(
+            history,
+            title=f"FA on {name} Function (dim={dim})",
+            save_path=f"results/fa_{name.lower()}_convergence.png",
+            show=False
+        )
+        
+        # Visualize trajectory for 2D projection
+        if len(trajectory) > 0 and name in ["Rastrigin", "Ackley"]:
+            plot_trajectory_2d(
+                trajectory,
+                title=f"FA Swarm Trajectory on {name} (First 2 Dims)",
+                save_path=f"results/fa_{name.lower()}_trajectory.png",
+                show=False,
+                sample_rate=10
+            )
+    
+    # Print summary table
     print("\n" + "=" * 70)
-    print("DEMO 2: Discrete Firefly Algorithm on TSP")
+    print("CONTINUOUS PROBLEMS SUMMARY")
+    print("=" * 70)
+    print(f"{'Problem':<15} {'Initial':<12} {'Final':<12} {'Improvement':<12} {'Improv %':<10}")
+    print("-" * 70)
+    for r in results:
+        improv_pct = 100 * r['Improvement'] / r['Initial'] if r['Initial'] > 0 else 0
+        print(f"{r['Problem']:<15} {r['Initial']:>11.6f} {r['Final']:>11.6f} {r['Improvement']:>11.6f} {improv_pct:>9.2f}%")
+    print("-" * 70)
+    
+    # Plot all convergences together
+    histories_dict = {r['Problem']: r['History'] for r in results}
+    plot_comparison(
+        histories_dict,
+        title="FA Convergence on All Continuous Problems",
+        save_path="results/fa_all_continuous_comparison.png",
+        show=False
+    )
+    
+    return results
+
+
+def demo_fa_all_discrete():
+    """Demo 2: Firefly Algorithm on ALL discrete problems."""
+    print("\n" + "=" * 70)
+    print("DEMO 2: Firefly Algorithm on ALL Discrete Problems")
     print("=" * 70)
     
-    # Create random TSP instance
-    rng = np.random.RandomState(123)
-    coords = rng.rand(15, 2) * 100  # 15 cities in [0,100]^2
-    problem = TSPProblem(coords)
+    from src.problems.discrete.tsp import TSPProblem
+    from src.problems.discrete.knapsack import KnapsackProblem
+    from src.problems.discrete.graph_coloring import GraphColoringProblem
+    from src.swarm.fa import FireflyDiscreteTSPOptimizer
     
-    print(f"\nTSP Instance: {problem.num_cities} cities")
-    print(f"Search space: {math.factorial(problem.num_cities):,} possible tours")
+    results = []
+    seed = 42
+    rng = np.random.RandomState(seed)
     
-    optimizer = FireflyDiscreteTSPOptimizer(
-        problem=problem,
-        n_fireflies=25,
+    # 1. TSP Problem
+    print("\n[1] Traveling Salesman Problem")
+    print("-" * 70)
+    coords = rng.rand(20, 2) * 100  # 20 cities
+    tsp_problem = TSPProblem(coords)
+    
+    print(f"  Cities: {tsp_problem.num_cities}")
+    print(f"  Search space: {math.factorial(tsp_problem.num_cities):,} possible tours")
+    
+    tsp_optimizer = FireflyDiscreteTSPOptimizer(
+        problem=tsp_problem,
+        n_fireflies=30,
         alpha_swap=0.2,
         max_swaps_per_move=3,
-        seed=42
+        seed=seed
     )
     
-    best_tour, best_length, history, _ = optimizer.run(max_iter=100)
+    best_tour, best_length, tsp_history, _ = tsp_optimizer.run(max_iter=150)
     
-    print(f"\nInitial best tour length: {history[0]:.4f}")
-    print(f"Final best tour length:   {history[-1]:.4f}")
-    print(f"Improvement:              {history[0] - history[-1]:.4f}")
-    print(f"Improvement %:            {100 * (history[0] - history[-1]) / history[0]:.2f}%")
-    print(f"Best tour: {best_tour}")
+    print(f"  Initial tour length: {tsp_history[0]:.4f}")
+    print(f"  Final tour length:   {tsp_history[-1]:.4f}")
+    print(f"  Improvement:         {tsp_history[0] - tsp_history[-1]:.4f}")
+    print(f"  Best tour: {best_tour}")
     
-    # Visualize TSP tour and convergence
+    results.append({
+        'Problem': 'TSP',
+        'Size': f"{tsp_problem.num_cities} cities",
+        'Initial': tsp_history[0],
+        'Final': tsp_history[-1],
+        'Improvement': tsp_history[0] - tsp_history[-1],
+        'History': tsp_history
+    })
+    
     plot_tsp_tour(
         coords,
         best_tour,
         title=f"Best TSP Tour (Length: {best_length:.2f})",
-        save_path="results/tsp_tour.png",
+        save_path="results/fa_tsp_tour.png",
         show=False
     )
     
     plot_convergence(
-        history,
+        tsp_history,
         title="FA on TSP - Convergence",
         ylabel="Tour Length",
-        save_path="results/tsp_convergence.png",
+        save_path="results/fa_tsp_convergence.png",
         show=False
     )
+    
+    # 2. Knapsack Problem
+    print("\n[2] 0/1 Knapsack Problem")
+    print("-" * 70)
+    n_items = 30
+    weights = rng.randint(1, 50, n_items)
+    values = rng.randint(10, 100, n_items)
+    capacity = int(0.5 * np.sum(weights))
+    
+    knapsack_problem = KnapsackProblem(weights, values, capacity)
+    
+    print(f"  Items: {n_items}")
+    print(f"  Capacity: {capacity}")
+    print(f"  Total weight: {np.sum(weights)}")
+    print(f"  Total value: {np.sum(values)}")
+    
+    # Use Simulated Annealing for Knapsack (FA doesn't have specific knapsack variant)
+    from src.classical.simulated_annealing import SimulatedAnnealingOptimizer
+    from src.classical.genetic_algorithm import GeneticAlgorithmOptimizer
+    
+    print("  Note: Using SA and GA for Knapsack (no dedicated FA variant)")
+    
+    sa_knapsack = SimulatedAnnealingOptimizer(knapsack_problem, initial_temp=100, seed=seed)
+    _, sa_value, sa_history, _ = sa_knapsack.run(max_iter=200)
+    
+    ga_knapsack = GeneticAlgorithmOptimizer(knapsack_problem, pop_size=30, seed=seed)
+    _, ga_value, ga_history, _ = ga_knapsack.run(max_iter=100)
+    
+    # Note: Knapsack is maximization, so we negate for comparison
+    print(f"  SA Final value: {-sa_value:.2f}")
+    print(f"  GA Final value: {-ga_value:.2f}")
+    
+    results.append({
+        'Problem': 'Knapsack (SA)',
+        'Size': f"{n_items} items",
+        'Initial': sa_history[0],
+        'Final': sa_history[-1],
+        'Improvement': sa_history[0] - sa_history[-1],
+        'History': sa_history
+    })
+    
+    plot_convergence(
+        sa_history,
+        title=f"SA on Knapsack Problem ({n_items} items)",
+        ylabel="Negative Value (minimize)",
+        save_path="results/sa_knapsack_convergence.png",
+        show=False
+    )
+    
+    # 3. Graph Coloring Problem
+    print("\n[3] Graph Coloring Problem")
+    print("-" * 70)
+    n_nodes = 20
+    edge_prob = 0.3
+    num_colors = 5  # Allow up to 5 colors
+    
+    # Generate random graph
+    edges = []
+    for i in range(n_nodes):
+        for j in range(i + 1, n_nodes):
+            if rng.rand() < edge_prob:
+                edges.append((i, j))
+    
+    coloring_problem = GraphColoringProblem(n_nodes, edges, num_colors)
+    
+    print(f"  Nodes: {n_nodes}")
+    print(f"  Edges: {len(edges)}")
+    print(f"  Colors available: {num_colors}")
+    print(f"  Density: {len(edges) / (n_nodes * (n_nodes - 1) / 2):.2%}")
+    
+    print("  Note: Using SA for Graph Coloring (no dedicated FA variant)")
+    
+    sa_coloring = SimulatedAnnealingOptimizer(coloring_problem, initial_temp=50, seed=seed)
+    _, sa_conflicts, sa_col_history, _ = sa_coloring.run(max_iter=200)
+    
+    print(f"  Final conflicts: {sa_conflicts:.0f}")
+    print(f"  Improvement: {sa_col_history[0] - sa_col_history[-1]:.0f}")
+    
+    results.append({
+        'Problem': 'Graph Coloring (SA)',
+        'Size': f"{n_nodes} nodes, {len(edges)} edges",
+        'Initial': sa_col_history[0],
+        'Final': sa_col_history[-1],
+        'Improvement': sa_col_history[0] - sa_col_history[-1],
+        'History': sa_col_history
+    })
+    
+    plot_convergence(
+        sa_col_history,
+        title=f"SA on Graph Coloring ({n_nodes} nodes)",
+        ylabel="Number of Conflicts",
+        save_path="results/sa_coloring_convergence.png",
+        show=False
+    )
+    
+    # Print summary table
+    print("\n" + "=" * 70)
+    print("DISCRETE PROBLEMS SUMMARY")
+    print("=" * 70)
+    print(f"{'Problem':<25} {'Size':<20} {'Initial':<12} {'Final':<12} {'Improvement':<12}")
+    print("-" * 70)
+    for r in results:
+        print(f"{r['Problem']:<25} {r['Size']:<20} {r['Initial']:>11.4f} {r['Final']:>11.4f} {r['Improvement']:>11.4f}")
+    print("-" * 70)
+    
+    return results
 
 
 def demo_algorithm_comparison():
@@ -312,46 +464,61 @@ def demo_parameter_sensitivity():
 
 
 def main():
-    """Run all demos."""
+    """Run all comprehensive demos."""
     print("\n" + "=" * 70)
-    print("  AI SEARCH & OPTIMIZATION FRAMEWORK - COMPREHENSIVE DEMO")
+    print("  FIREFLY ALGORITHM - COMPREHENSIVE TESTING ON ALL PROBLEMS")
     print("=" * 70)
     
     # Create results directory
     os.makedirs("results", exist_ok=True)
     
     try:
-        # Run demos
-        demo_fa_continuous()
-        demo_fa_discrete()
+        # Run comprehensive demos
+        continuous_results = demo_fa_all_continuous()
+        discrete_results = demo_fa_all_discrete()
         demo_algorithm_comparison()
         demo_parameter_sensitivity()
         
         # Final summary
         print("\n" + "=" * 70)
-        print("DEMO COMPLETE")
+        print("COMPREHENSIVE DEMO COMPLETE")
         print("=" * 70)
         print("\nWhat you've seen:")
-        print("  ✓ Firefly Algorithm on continuous problems (Sphere, Rastrigin)")
-        print("  ✓ Discrete FA on Traveling Salesman Problem")
-        print("  ✓ Comparison of multiple algorithms (FA, SA, HC, GA)")
-        print("  ✓ Parameter sensitivity analysis (gamma)")
-        print("  ✓ Visualization of convergence, trajectories, and comparisons")
-        print("\nVisualization files saved to:")
-        print("  • results/fa_sphere_convergence.png")
-        print("  • results/fa_rastrigin_convergence.png")
-        print("  • results/fa_rastrigin_trajectory.png")
-        print("  • results/tsp_tour.png")
-        print("  • results/tsp_convergence.png")
-        print("  • results/algorithm_comparison.png")
-        print("  • results/algorithm_comparison_log.png")
-        print("  • results/parameter_sensitivity_gamma.png")
+        print("  ✓ FA on ALL continuous problems:")
+        print("    • Sphere (unimodal, convex)")
+        print("    • Rosenbrock (unimodal, narrow valley)")
+        print("    • Rastrigin (multimodal, many local minima)")
+        print("    • Ackley (multimodal, nearly flat outer region)")
+        print("  ✓ FA/SA/GA on ALL discrete problems:")
+        print("    • Traveling Salesman Problem (TSP)")
+        print("    • 0/1 Knapsack Problem")
+        print("    • Graph Coloring Problem")
+        print("  ✓ Algorithm comparison (FA, SA, HC, GA)")
+        print("  ✓ Parameter sensitivity analysis")
+        print("\nVisualization files saved to results/:")
+        print("  Continuous problems:")
+        print("    • fa_sphere_convergence.png")
+        print("    • fa_rosenbrock_convergence.png")
+        print("    • fa_rastrigin_convergence.png & trajectory.png")
+        print("    • fa_ackley_convergence.png & trajectory.png")
+        print("    • fa_all_continuous_comparison.png")
+        print("  Discrete problems:")
+        print("    • fa_tsp_tour.png & convergence.png")
+        print("    • sa_knapsack_convergence.png")
+        print("    • sa_coloring_convergence.png")
+        print("  Comparisons:")
+        print("    • algorithm_comparison.png & log.png")
+        print("    • parameter_sensitivity_gamma.png")
+        print("\n📊 Summary Statistics:")
+        print(f"  • Continuous problems tested: {len(continuous_results)}")
+        print(f"  • Discrete problems tested: {len(discrete_results)}")
+        print(f"  • Total visualizations: ~15+ plots")
         print("\nNext steps:")
-        print("  • Customize visualizations in src/utils/visualization.py")
-        print("  • Create animations using matplotlib.animation")
-        print("  • Run statistical benchmarks over multiple seeds")
-        print("  • Create notebooks for interactive demonstrations")
-        print("\nSee QUICKSTART.md for more usage examples!")
+        print("  • Run notebooks/fa_visualization.ipynb for interactive demos")
+        print("  • Customize parameters in each demo function")
+        print("  • Add statistical analysis with multiple seeds")
+        print("  • Create animations for swarm movement")
+        print("\nSee README.md and QUICKSTART.md for more details!")
         print("=" * 70 + "\n")
     
     except Exception as e:
