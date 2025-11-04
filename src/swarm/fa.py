@@ -8,6 +8,8 @@ References
 ----------
 .. [1] Yang, X. S. (2008). Nature-inspired metaheuristic algorithms. Luniver press.
 .. [2] https://www.alpsconsult.net/post/firefly-algorithm-fa-overview
+.. [3] Feng, Y., et al. (2017). A binary firefly algorithm for the 0-1 knapsack problem.
+       Applied Soft Computing, 52, 661-670.
 """
 
 import numpy as np

@@ -356,7 +356,8 @@ python src/classical/graph_search.py
 1. Yang, X. S. (2008). *Nature-inspired metaheuristic algorithms*. Luniver press.
 2. [Firefly Algorithm Overview](https://www.alpsconsult.net/post/firefly-algorithm-fa-overview)
 3. [Virtual Library of Simulation Experiments - Test Functions](https://www.sfu.ca/~ssurjano/optimization.html)
-4. [Swap-Based Discrete Firefly Algorithm for TSP](https://www.researchgate.net/publication/320480703_Swap-Based_Discrete_Firefly_Algorithm_for_Traveling_Salesman_Problem)
+4. Goldberg, D. E., & Lingle, R. (1985). *Alleles, loci, and the traveling salesman problem*. In Proceedings of the 1st International Conference on Genetic Algorithms.
+5. [0/1 Knapsack Problem](https://en.wikipedia.org/wiki/Knapsack_problem)
 
 ## 👥 Contributors
 
