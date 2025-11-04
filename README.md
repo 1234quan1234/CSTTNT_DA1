@@ -8,7 +8,7 @@ This project implements and benchmarks multiple optimization algorithms:
 
 ### Swarm Intelligence
 - **Firefly Algorithm (FA)** - Continuous optimization
-- **Firefly Algorithm (FA)** - Discrete TSP variant
+- **Firefly Algorithm (FA)** - Discrete Knapsack variant
 
 ### Classical Baselines
 - **Hill Climbing** - Greedy local search
@@ -174,32 +174,36 @@ print(f"Best fitness: {best_fitness}")
 print(f"Best solution: {best_solution}")
 ```
 
-### Example 2: TSP with Discrete Firefly Algorithm
+### Example 2: Knapsack with Discrete Firefly Algorithm
 
 ```python
 import numpy as np
-from src.problems.discrete.tsp import TSPProblem
-from src.swarm.fa import FireflyDiscreteTSPOptimizer
+from src.problems.discrete.knapsack import KnapsackProblem
+from src.swarm.fa import FireflyKnapsackOptimizer
 
-# Create random TSP instance
+# Create Knapsack instance
 rng = np.random.RandomState(42)
-coords = rng.rand(20, 2) * 100  # 20 cities in [0,100]^2
-problem = TSPProblem(coords)
+n_items = 20
+values = rng.randint(10, 100, n_items)
+weights = rng.randint(1, 50, n_items)
+capacity = int(0.5 * np.sum(weights))
+
+problem = KnapsackProblem(values, weights, capacity)
 
 # Create optimizer
-optimizer = FireflyDiscreteTSPOptimizer(
+optimizer = FireflyKnapsackOptimizer(
     problem=problem,
     n_fireflies=30,
-    alpha_swap=0.2,
-    max_swaps_per_move=3,
+    alpha_flip=0.2,
+    max_flips_per_move=3,
     seed=42
 )
 
 # Run optimization
-best_tour, best_length, history, trajectory = optimizer.run(max_iter=100)
+best_sol, best_fit, history, trajectory = optimizer.run(max_iter=100)
 
-print(f"Best tour length: {best_length}")
-print(f"Best tour: {best_tour}")
+print(f"Best value: {-best_fit:.2f}")  # Negate because minimization
+print(f"Best solution: {best_sol}")
 ```
 
 ### Example 3: Compare Multiple Algorithms
@@ -295,19 +299,21 @@ Where:
 - `gamma` (0.0-10.0): Controls attraction decay. Higher = more local search
 - `beta0` (0.0-2.0): Base attractiveness at r=0
 
-### Firefly Algorithm (Discrete/TSP)
+### Firefly Algorithm (Discrete/Knapsack)
 
-For TSP, FA uses swap-based operators instead of continuous movement:
+For Knapsack, FA uses bit-flip operators instead of continuous movement:
 
 **Movement Strategy:**
-1. Compare current tour with better (brighter) tour
-2. Identify position differences between tours
-3. Apply directed swaps to align with better tour
-4. Add random swaps (controlled by `alpha_swap`) for exploration
+1. Compare current solution with better (brighter) solution
+2. Identify bit differences between solutions
+3. Apply directed bit flips to align with better solution
+4. Add random bit flips (controlled by `alpha_flip`) for exploration
+5. Repair infeasible solutions using greedy value/weight ratio
 
 **Parameters:**
-- `alpha_swap` (0.0-1.0): Probability of random swap after directed movement
-- `max_swaps_per_move`: Maximum number of swaps per attraction step
+- `alpha_flip` (0.0-1.0): Probability of random bit flip after directed movement
+- `max_flips_per_move`: Maximum number of directed flips per attraction step
+- `repair_method`: "greedy_remove" (recommended) or "random_remove"
 
 ### Optimization Problems
 

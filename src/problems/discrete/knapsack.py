@@ -165,6 +165,8 @@ class KnapsackProblem(ProblemBase):
         """
         Repair an infeasible solution by removing items until feasible.
         
+        Uses greedy strategy: removes items with lowest value/weight ratio first.
+        
         Parameters
         ----------
         solution : np.ndarray
@@ -178,20 +180,58 @@ class KnapsackProblem(ProblemBase):
             Feasible binary selection vector.
         """
         solution = solution.copy()
-        selected_indices = np.where(solution == 1)[0]
-        
         total_weight = np.sum(solution * self.weights)
         
-        # Remove random items until feasible
-        while total_weight > self.capacity and len(selected_indices) > 0:
-            # Randomly remove one selected item
-            remove_idx = rng.choice(len(selected_indices))
-            item_to_remove = selected_indices[remove_idx]
+        # If already feasible, return
+        if total_weight <= self.capacity:
+            return solution
+        
+        selected_indices = np.where(solution == 1)[0]
+        
+        # Greedy repair: remove lowest value/weight ratio items first
+        if len(selected_indices) > 0:
+            ratios = self.values[selected_indices] / self.weights[selected_indices]
+            sorted_indices = selected_indices[np.argsort(ratios)]  # Ascending
             
-            solution[item_to_remove] = 0
-            total_weight -= self.weights[item_to_remove]
+            for idx in sorted_indices:
+                solution[idx] = 0
+                total_weight -= self.weights[idx]
+                if total_weight <= self.capacity:
+                    break
+        
+        return solution
+    
+    def greedy_repair(self, solution: np.ndarray) -> np.ndarray:
+        """
+        Public method for greedy repair (for external use by optimizers).
+        
+        Parameters
+        ----------
+        solution : np.ndarray
+            Binary selection vector that may be infeasible.
+        
+        Returns
+        -------
+        repaired : np.ndarray
+            Feasible binary selection vector.
+        """
+        solution = solution.copy()
+        total_weight = np.sum(solution * self.weights)
+        
+        if total_weight <= self.capacity:
+            return solution
+        
+        selected_indices = np.where(solution == 1)[0]
+        
+        if len(selected_indices) > 0:
+            ratios = self.values[selected_indices] / self.weights[selected_indices]
+            sorted_indices = selected_indices[np.argsort(ratios)]
             
-            selected_indices = np.where(solution == 1)[0]
+            for idx in sorted_indices:
+                solution[idx] = 0
+                total_weight -= self.weights[idx]
+                if total_weight <= self.capacity:
+                    break
         
         return solution
     

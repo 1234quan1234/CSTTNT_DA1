@@ -1,14 +1,13 @@
 """
 Firefly Algorithm (FA) optimization.
 
-Implements both continuous and discrete (TSP) variants of the Firefly Algorithm,
+Implements both continuous and discrete (Knapsack) variants of the Firefly Algorithm,
 a nature-inspired metaheuristic based on the flashing behavior of fireflies.
 
 References
 ----------
 .. [1] Yang, X. S. (2008). Nature-inspired metaheuristic algorithms. Luniver press.
 .. [2] https://www.alpsconsult.net/post/firefly-algorithm-fa-overview
-.. [3] https://www.researchgate.net/publication/320480703_Swap-Based_Discrete_Firefly_Algorithm_for_Traveling_Salesman_Problem
 """
 
 import numpy as np
@@ -230,92 +229,105 @@ class FireflyContinuousOptimizer(BaseOptimizer):
         return best_solution, best_fitness, history_best, trajectory
 
 
-class FireflyDiscreteTSPOptimizer(BaseOptimizer):
+class FireflyKnapsackOptimizer(BaseOptimizer):
     """
-    Firefly Algorithm for Traveling Salesman Problem (discrete optimization).
+    Firefly Algorithm for 0/1 Knapsack Problem (discrete optimization).
     
-    Adapts FA to TSP by replacing continuous movement with swap-based operators.
-    Instead of moving in Euclidean space, fireflies "move" by swapping cities
-    in their tours to become more similar to better tours.
+    Adapts FA to Knapsack by replacing continuous movement with bit-flip operators.
+    Fireflies "move" toward better solutions by selectively flipping bits to become
+    more similar to better (brighter) solutions while maintaining feasibility.
     
-    Movement toward a better tour involves:
-    1. Identifying differences between current tour and target (better) tour
-    2. Applying directed swaps to reduce these differences
-    3. Adding random swaps for exploration (equivalent to α in continuous FA)
+    Movement Strategy:
+    1. Compare current solution with better (brighter) solution
+    2. Identify bit differences between solutions
+    3. Apply directed bit flips to align with better solution
+    4. Add random bit flips for exploration (controlled by alpha_flip)
+    5. Repair infeasible solutions using greedy strategy
     
     Parameters
     ----------
-    problem : TSPProblem
-        The TSP problem instance (must have representation_type == "tsp").
+    problem : KnapsackProblem
+        The Knapsack problem instance (must have representation_type == "knapsack").
     n_fireflies : int, default=30
-        Number of fireflies (tours) in the population.
-        Larger populations help escape local optima but increase runtime.
+        Number of fireflies (solutions) in the population.
+        Larger populations help escape local optima.
         Typical range: 20-50.
-    alpha_swap : float, default=0.2
-        Probability of applying random swap for exploration after directed movement.
+    alpha_flip : float, default=0.2
+        Probability of random bit flip after directed movement.
         - Lower (0.1): More exploitation
         - Higher (0.4): More exploration
         Typical range: 0.1-0.4
-    max_swaps_per_move : int, default=3
-        Maximum number of directed swaps when moving toward another firefly.
-        - Lower (1-2): More cautious, slower convergence
-        - Higher (5-7): More aggressive, faster but may skip good solutions
+    max_flips_per_move : int, default=3
+        Maximum number of directed bit flips when moving toward another firefly.
+        Controls how aggressively solutions adapt to better ones.
         Typical range: 2-5
+    repair_method : str, default="greedy_remove"
+        Method to repair infeasible solutions:
+        - "greedy_remove": Remove lowest value/weight ratio items
+        - "random_remove": Remove random items until feasible
     seed : int or None, default=None
         Random seed for reproducibility.
     
     Attributes
     ----------
-    problem : TSPProblem
-        The TSP problem.
+    problem : KnapsackProblem
+        The Knapsack problem.
     n_fireflies : int
         Population size.
-    alpha_swap : float
-        Random swap probability.
-    max_swaps_per_move : int
-        Maximum swaps per movement.
+    alpha_flip : float
+        Random flip probability.
+    max_flips_per_move : int
+        Maximum flips per movement.
+    repair_method : str
+        Repair strategy for infeasible solutions.
     rng : np.random.RandomState
         Random number generator.
-    tours : np.ndarray
-        Current tours, shape (n_fireflies, num_cities).
+    solutions : np.ndarray
+        Current solutions, shape (n_fireflies, num_items).
     fitness : np.ndarray
-        Current tour lengths, shape (n_fireflies,).
+        Current fitness values, shape (n_fireflies,).
     
     Notes
     -----
-    **Time Complexity:** O(max_iter · n² · m · k) where:
+    **Time Complexity:** O(max_iter · n² · m) where:
     - n = n_fireflies
-    - m = num_cities
-    - k = max_swaps_per_move
+    - m = num_items
+    
+    **Repair Strategy:**
+    When a solution exceeds capacity, items are removed based on value/weight ratio.
+    This greedy repair often produces better solutions than random removal.
     
     **Parameter Tuning:**
-    - Small TSP (< 20 cities): n_fireflies=20, max_swaps=2
-    - Medium TSP (20-50 cities): n_fireflies=30, max_swaps=3
-    - Large TSP (> 50 cities): n_fireflies=50, max_swaps=4-5
+    - Small problems (< 30 items): n_fireflies=20, max_flips=2
+    - Medium problems (30-100 items): n_fireflies=30, max_flips=3
+    - Large problems (> 100 items): n_fireflies=50, max_flips=4-5
     
     Examples
     --------
-    >>> from problems.discrete.tsp import TSPProblem
-    >>> coords = np.random.rand(10, 2) * 100
-    >>> problem = TSPProblem(coords)
-    >>> optimizer = FireflyDiscreteTSPOptimizer(problem, n_fireflies=20, seed=42)
-    >>> best_tour, best_length, history, trajectory = optimizer.run(max_iter=50)
-    >>> print(f"Best tour length: {best_length:.4f}")
+    >>> from problems.discrete.knapsack import KnapsackProblem
+    >>> values = np.array([10, 20, 30, 40, 50])
+    >>> weights = np.array([1, 2, 3, 4, 5])
+    >>> capacity = 7.0
+    >>> problem = KnapsackProblem(values, weights, capacity)
+    >>> optimizer = FireflyKnapsackOptimizer(problem, n_fireflies=20, seed=42)
+    >>> best_sol, best_fit, history, trajectory = optimizer.run(max_iter=50)
+    >>> print(f"Best value: {-best_fit:.2f}")  # Negate because we minimize
     """
     
     def __init__(
         self,
         problem: ProblemBase,
         n_fireflies: int = 30,
-        alpha_swap: float = 0.2,
-        max_swaps_per_move: int = 3,
+        alpha_flip: float = 0.2,
+        max_flips_per_move: int = 3,
+        repair_method: str = "greedy_remove",
         seed: int = None
     ):
-        """Initialize Firefly Algorithm for TSP."""
+        """Initialize Firefly Algorithm for Knapsack."""
         # Validate problem type
-        if problem.representation_type() != "tsp":
+        if problem.representation_type() != "knapsack":
             raise ValueError(
-                f"FireflyDiscreteTSPOptimizer requires TSP problem, "
+                f"FireflyKnapsackOptimizer requires knapsack problem, "
                 f"got '{problem.representation_type()}'. "
                 f"Use FireflyContinuousOptimizer for continuous problems."
             )
@@ -323,86 +335,127 @@ class FireflyDiscreteTSPOptimizer(BaseOptimizer):
         # Validate parameters
         if n_fireflies < 2:
             raise ValueError(f"n_fireflies must be >= 2, got {n_fireflies}")
-        if not 0.0 <= alpha_swap <= 1.0:
-            raise ValueError(f"alpha_swap must be in [0, 1], got {alpha_swap}")
-        if max_swaps_per_move < 1:
-            raise ValueError(f"max_swaps_per_move must be >= 1, got {max_swaps_per_move}")
+        if not 0.0 <= alpha_flip <= 1.0:
+            raise ValueError(f"alpha_flip must be in [0, 1], got {alpha_flip}")
+        if max_flips_per_move < 1:
+            raise ValueError(f"max_flips_per_move must be >= 1, got {max_flips_per_move}")
+        if repair_method not in ["greedy_remove", "random_remove"]:
+            raise ValueError(f"repair_method must be 'greedy_remove' or 'random_remove', got {repair_method}")
         
         self.problem = problem
         self.n_fireflies = n_fireflies
-        self.alpha_swap = alpha_swap
-        self.max_swaps_per_move = max_swaps_per_move
+        self.alpha_flip = alpha_flip
+        self.max_flips_per_move = max_flips_per_move
+        self.repair_method = repair_method
         self.seed = seed
         self.rng = np.random.RandomState(seed)
         
         # Will be initialized in run()
-        self.tours = None
+        self.solutions = None
         self.fitness = None
     
     def _init_population(self):
-        """Initialize firefly population with random tours."""
-        self.tours = self.problem.init_solution(self.rng, self.n_fireflies)
-        self.fitness = np.array([self.problem.evaluate(tour) for tour in self.tours])
+        """Initialize firefly population with random feasible solutions."""
+        self.solutions = self.problem.init_solution(self.rng, self.n_fireflies)
+        self.fitness = np.array([self.problem.evaluate(sol) for sol in self.solutions])
     
-    def _swap_move_towards(self, i_tour: np.ndarray, j_tour: np.ndarray) -> np.ndarray:
+    def _repair_solution(self, solution: np.ndarray) -> np.ndarray:
         """
-        Apply swap operations to make i_tour more similar to j_tour.
+        Repair an infeasible solution by removing items until feasible.
         
-        Strategy: Find positions where tours differ and swap cities in i_tour
-        to match j_tour's structure. This is the discrete equivalent of
+        Parameters
+        ----------
+        solution : np.ndarray
+            Binary selection vector that may exceed capacity.
+        
+        Returns
+        -------
+        repaired : np.ndarray
+            Feasible binary selection vector.
+        """
+        solution = solution.copy()
+        total_weight = np.sum(solution * self.problem.weights)
+        
+        # If already feasible, return as is
+        if total_weight <= self.problem.capacity:
+            return solution
+        
+        selected_indices = np.where(solution == 1)[0]
+        
+        if self.repair_method == "greedy_remove":
+            # Remove items with lowest value/weight ratio first
+            ratios = self.problem.values[selected_indices] / self.problem.weights[selected_indices]
+            sorted_indices = selected_indices[np.argsort(ratios)]  # Ascending order
+            
+            for idx in sorted_indices:
+                solution[idx] = 0
+                total_weight -= self.problem.weights[idx]
+                if total_weight <= self.problem.capacity:
+                    break
+        
+        else:  # random_remove
+            # Randomly remove items until feasible
+            while total_weight > self.problem.capacity and len(selected_indices) > 0:
+                remove_idx = self.rng.choice(len(selected_indices))
+                item_to_remove = selected_indices[remove_idx]
+                
+                solution[item_to_remove] = 0
+                total_weight -= self.problem.weights[item_to_remove]
+                
+                selected_indices = np.where(solution == 1)[0]
+        
+        return solution
+    
+    def _flip_move_towards(self, i_sol: np.ndarray, j_sol: np.ndarray) -> np.ndarray:
+        """
+        Apply bit flips to make i_sol more similar to j_sol (better solution).
+        
+        Strategy: Find positions where solutions differ and flip bits in i_sol
+        to match j_sol's structure. This is the discrete equivalent of
         continuous attraction in standard FA.
         
         Parameters
         ----------
-        i_tour : np.ndarray
-            Current tour to modify (less bright firefly).
-        j_tour : np.ndarray
-            Target (better) tour (brighter firefly).
+        i_sol : np.ndarray
+            Current solution to modify (less bright firefly).
+        j_sol : np.ndarray
+            Target (brighter) solution (better firefly).
         
         Returns
         -------
-        new_tour : np.ndarray
-            Modified tour after directed swaps.
-        
-        Notes
-        -----
-        This implements a simplified version of the swap-based operator
-        described in literature for discrete FA on TSP.
+        new_sol : np.ndarray
+            Modified solution after directed bit flips and repair.
         """
-        new_tour = i_tour.copy()
-        num_cities = len(i_tour)
+        new_sol = i_sol.copy()
+        num_items = len(i_sol)
         
-        # Apply limited number of directed swaps to move toward j_tour
-        num_swaps = self.rng.randint(1, self.max_swaps_per_move + 1)
+        # Apply limited number of directed flips to move toward j_sol
+        num_flips = self.rng.randint(1, self.max_flips_per_move + 1)
         
-        for _ in range(num_swaps):
-            # Find positions where tours differ
-            diff_positions = np.where(new_tour != j_tour)[0]
+        for _ in range(num_flips):
+            # Find positions where solutions differ
+            diff_positions = np.where(new_sol != j_sol)[0]
             
             if len(diff_positions) == 0:
-                break  # Tours are identical, no more swaps needed
+                break  # Solutions are identical, no more flips needed
             
-            # Pick a random differing position
-            pos1 = self.rng.choice(diff_positions)
-            
-            # Find where j_tour's city at pos1 is located in new_tour
-            target_city = j_tour[pos1]
-            pos2 = np.where(new_tour == target_city)[0][0]
-            
-            # Swap to bring target_city to pos1 (align with j_tour)
-            if pos1 != pos2:
-                new_tour[pos1], new_tour[pos2] = new_tour[pos2], new_tour[pos1]
+            # Pick a random differing position and flip to match j_sol
+            pos = self.rng.choice(diff_positions)
+            new_sol[pos] = j_sol[pos]
         
-        # Apply random swap for exploration (equivalent to α random term)
-        if self.rng.rand() < self.alpha_swap:
-            pos_a, pos_b = self.rng.choice(num_cities, size=2, replace=False)
-            new_tour[pos_a], new_tour[pos_b] = new_tour[pos_b], new_tour[pos_a]
+        # Apply random flip for exploration (equivalent to α random term)
+        if self.rng.rand() < self.alpha_flip:
+            flip_pos = self.rng.randint(num_items)
+            new_sol[flip_pos] = 1 - new_sol[flip_pos]
         
-        return new_tour
+        # Repair if infeasible
+        new_sol = self._repair_solution(new_sol)
+        
+        return new_sol
     
     def run(self, max_iter: int) -> Tuple[np.ndarray, float, List[float], List[np.ndarray]]:
         """
-        Run Firefly Algorithm for TSP for max_iter iterations.
+        Run Firefly Algorithm for Knapsack for max_iter iterations.
         
         Parameters
         ----------
@@ -412,19 +465,18 @@ class FireflyDiscreteTSPOptimizer(BaseOptimizer):
         Returns
         -------
         best_solution : np.ndarray
-            Best tour found, shape (num_cities,).
+            Best solution found, shape (num_items,), binary vector.
         best_fitness : float
-            Best tour length (minimum).
+            Best fitness value (negative value for maximization).
         history_best : List[float]
-            Best tour length at each iteration.
+            Best fitness at each iteration.
         trajectory : List[np.ndarray]
-            Population at each iteration, each element has shape (n_fireflies, num_cities).
+            Population at each iteration, shape (n_fireflies, num_items).
         
         Notes
         -----
-        Convergence detection: Monitor history_best for plateau.
-        Typical improvement seen in first 50-100 iterations for small TSP instances.
-        For large instances, may need 200-500 iterations.
+        Remember that fitness is negated value (minimization framework).
+        Actual knapsack value = -best_fitness
         """
         # Initialize
         self._init_population()
@@ -433,30 +485,29 @@ class FireflyDiscreteTSPOptimizer(BaseOptimizer):
         trajectory = []
         
         for iteration in range(max_iter):
-            # Compute brightness (lower tour length = higher brightness)
+            # Compute brightness (lower fitness = higher brightness for minimization)
             brightness = compute_brightness(self.fitness)
             
             # Move fireflies toward brighter ones
             for i in range(self.n_fireflies):
                 for j in range(self.n_fireflies):
-                    # If j has better tour (brighter) than i, move i toward j
+                    # If j has better solution (brighter) than i, move i toward j
                     if brightness[j] > brightness[i]:
-                        new_tour = self._swap_move_towards(self.tours[i], self.tours[j])
-                        new_fitness = self.problem.evaluate(new_tour)
+                        new_sol = self._flip_move_towards(self.solutions[i], self.solutions[j])
+                        new_fitness = self.problem.evaluate(new_sol)
                         
                         # Accept if better (greedy acceptance)
-                        # Note: Could add probabilistic acceptance for diversity
                         if new_fitness < self.fitness[i]:
-                            self.tours[i] = new_tour
+                            self.solutions[i] = new_sol
                             self.fitness[i] = new_fitness
             
             # Track best solution
-            best_sol, best_fit = get_best_solution(self.tours, self.fitness)
+            best_sol, best_fit = get_best_solution(self.solutions, self.fitness)
             history_best.append(best_fit)
-            trajectory.append(self.tours.copy())
+            trajectory.append(self.solutions.copy())
         
         # Final best solution
-        best_solution, best_fitness = get_best_solution(self.tours, self.fitness)
+        best_solution, best_fitness = get_best_solution(self.solutions, self.fitness)
         
         return best_solution, best_fitness, history_best, trajectory
 
@@ -517,35 +568,43 @@ if __name__ == "__main__":
     print(f"  Final best fitness:   {history_r[-1]:.6f}")
     print(f"  Best solution:        [{best_sol_r[0]:.6f}, {best_sol_r[1]:.6f}]")
     print(f"  Improvement:          {history_r[0] - history_r[-1]:.6f}")
-    print(f"Note: Rastrigin is harder due to many local minima")
     
-    # Test 3: Discrete FA on TSP
-    print("\n[TEST 3] Discrete FA on TSP (15 cities)")
+    # Test 3: Discrete FA on Knapsack
+    print("\n[TEST 3] Discrete FA on 0/1 Knapsack Problem")
     print("-" * 70)
-    from problems.discrete.tsp import TSPProblem
+    from problems.discrete.knapsack import KnapsackProblem
     
-    rng_tsp = np.random.RandomState(123)
-    coords_tsp = rng_tsp.rand(15, 2) * 100
-    problem_tsp = TSPProblem(coords_tsp)
+    rng_knap = np.random.RandomState(123)
+    n_items = 20
+    values = rng_knap.randint(10, 100, n_items)
+    weights = rng_knap.randint(1, 50, n_items)
+    capacity = int(0.5 * np.sum(weights))
     
-    fa_discrete = FireflyDiscreteTSPOptimizer(
-        problem=problem_tsp,
+    problem_knapsack = KnapsackProblem(values, weights, capacity)
+    
+    fa_knapsack = FireflyKnapsackOptimizer(
+        problem=problem_knapsack,
         n_fireflies=25,
-        alpha_swap=0.2,
-        max_swaps_per_move=3,
+        alpha_flip=0.2,
+        max_flips_per_move=3,
+        repair_method="greedy_remove",
         seed=42
     )
     
-    best_tour, best_length, history_tsp, trajectory_tsp = fa_discrete.run(max_iter=80)
+    best_sol_k, best_fit_k, history_k, _ = fa_knapsack.run(max_iter=80)
     
-    print(f"Problem: TSP with {problem_tsp.num_cities} cities")
-    print(f"Search space size: {np.math.factorial(problem_tsp.num_cities):,} possible tours")
+    total_value = -best_fit_k  # Negate because we minimize
+    total_weight = np.sum(best_sol_k * weights)
+    
+    print(f"Problem: 0/1 Knapsack with {n_items} items")
+    print(f"Capacity: {capacity}, Total possible weight: {np.sum(weights)}")
     print(f"\nResults:")
-    print(f"  Initial best tour length: {history_tsp[0]:.4f}")
-    print(f"  Final best tour length:   {history_tsp[-1]:.4f}")
-    print(f"  Best tour: {best_tour}")
-    print(f"  Improvement:              {history_tsp[0] - history_tsp[-1]:.4f}")
-    print(f"  Improvement %:            {100 * (history_tsp[0] - history_tsp[-1]) / history_tsp[0]:.2f}%")
+    print(f"  Initial best value: {-history_k[0]:.2f}")
+    print(f"  Final best value:   {total_value:.2f}")
+    print(f"  Best solution: {best_sol_k}")
+    print(f"  Total weight: {total_weight:.2f} / {capacity}")
+    print(f"  Feasible: {total_weight <= capacity}")
+    print(f"  Improvement: {-history_k[0] - (-history_k[-1]):.2f}")
     
     # Test 4: Reproducibility test
     print("\n[TEST 4] Reproducibility Test")
@@ -560,7 +619,6 @@ if __name__ == "__main__":
     print(f"Run 1 final fitness: {fit1:.10f}")
     print(f"Run 2 final fitness: {fit2:.10f}")
     print(f"Identical results:   {fit1 == fit2}")
-    print(f"History identical:   {np.allclose(hist1, hist2)}")
     
     if fit1 == fit2:
         print("✓ Reproducibility test PASSED")
@@ -568,7 +626,5 @@ if __name__ == "__main__":
         print("✗ Reproducibility test FAILED")
     
     print("\n" + "=" * 70)
-    print("All Firefly Algorithm tests completed successfully!")
-    print("=" * 70)
     print("All Firefly Algorithm tests completed successfully!")
     print("=" * 70)

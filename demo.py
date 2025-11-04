@@ -26,7 +26,7 @@ try:
     from src.problems.discrete.tsp import TSPProblem
     from src.problems.discrete.knapsack import KnapsackProblem
     from src.problems.discrete.graph_coloring import GraphColoringProblem
-    from src.swarm.fa import FireflyContinuousOptimizer, FireflyDiscreteTSPOptimizer
+    from src.swarm.fa import FireflyContinuousOptimizer, FireflyKnapsackOptimizer
     from src.classical.hill_climbing import HillClimbingOptimizer
     from src.classical.simulated_annealing import SimulatedAnnealingOptimizer
     from src.classical.genetic_algorithm import GeneticAlgorithmOptimizer
@@ -147,13 +147,13 @@ def demo_fa_all_discrete():
     from src.problems.discrete.tsp import TSPProblem
     from src.problems.discrete.knapsack import KnapsackProblem
     from src.problems.discrete.graph_coloring import GraphColoringProblem
-    from src.swarm.fa import FireflyDiscreteTSPOptimizer
+    from src.swarm.fa import FireflyKnapsackOptimizer
     
     results = []
     seed = 42
     rng = np.random.RandomState(seed)
     
-    # 1. TSP Problem
+    # 1. TSP Problem (using SA/GA, no FA variant)
     print("\n[1] Traveling Salesman Problem")
     print("-" * 70)
     coords = rng.rand(20, 2) * 100  # 20 cities
@@ -161,48 +161,42 @@ def demo_fa_all_discrete():
     
     print(f"  Cities: {tsp_problem.num_cities}")
     print(f"  Search space: {math.factorial(tsp_problem.num_cities):,} possible tours")
+    print("  Note: Using SA for TSP (no dedicated FA variant for TSP)")
     
-    tsp_optimizer = FireflyDiscreteTSPOptimizer(
-        problem=tsp_problem,
-        n_fireflies=30,
-        alpha_swap=0.2,
-        max_swaps_per_move=3,
-        seed=seed
-    )
+    from src.classical.simulated_annealing import SimulatedAnnealingOptimizer
     
-    best_tour, best_length, tsp_history, _ = tsp_optimizer.run(max_iter=150)
+    sa_tsp = SimulatedAnnealingOptimizer(tsp_problem, initial_temp=50, seed=seed)
+    _, sa_length, sa_history, _ = sa_tsp.run(max_iter=200)
     
-    print(f"  Initial tour length: {tsp_history[0]:.4f}")
-    print(f"  Final tour length:   {tsp_history[-1]:.4f}")
-    print(f"  Improvement:         {tsp_history[0] - tsp_history[-1]:.4f}")
-    print(f"  Best tour: {best_tour}")
+    print(f"  SA tour length: {sa_length:.4f}")
+    print(f"  Improvement: {sa_history[0] - sa_history[-1]:.4f}")
     
     results.append({
-        'Problem': 'TSP',
+        'Problem': 'TSP (SA)',
         'Size': f"{tsp_problem.num_cities} cities",
-        'Initial': tsp_history[0],
-        'Final': tsp_history[-1],
-        'Improvement': tsp_history[0] - tsp_history[-1],
-        'History': tsp_history
+        'Initial': sa_history[0],
+        'Final': sa_history[-1],
+        'Improvement': sa_history[0] - sa_history[-1],
+        'History': sa_history
     })
     
     plot_tsp_tour(
         coords,
-        best_tour,
-        title=f"Best TSP Tour (Length: {best_length:.2f})",
-        save_path="results/fa_tsp_tour.png",
+        sa_tsp.best_solution,
+        title=f"Best TSP Tour (Length: {sa_length:.2f})",
+        save_path="results/sa_tsp_tour.png",
         show=False
     )
     
     plot_convergence(
-        tsp_history,
-        title="FA on TSP - Convergence",
+        sa_history,
+        title="SA on TSP - Convergence",
         ylabel="Tour Length",
-        save_path="results/fa_tsp_convergence.png",
+        save_path="results/sa_tsp_convergence.png",
         show=False
     )
     
-    # 2. Knapsack Problem
+    # 2. Knapsack Problem (using FA!)
     print("\n[2] 0/1 Knapsack Problem")
     print("-" * 70)
     n_items = 30
@@ -210,43 +204,40 @@ def demo_fa_all_discrete():
     values = rng.randint(10, 100, n_items)
     capacity = int(0.5 * np.sum(weights))
     
-    knapsack_problem = KnapsackProblem(weights, values, capacity)
+    knapsack_problem = KnapsackProblem(values, weights, capacity)
     
     print(f"  Items: {n_items}")
     print(f"  Capacity: {capacity}")
     print(f"  Total weight: {np.sum(weights)}")
     print(f"  Total value: {np.sum(values)}")
     
-    # Use Simulated Annealing for Knapsack (FA doesn't have specific knapsack variant)
-    from src.classical.simulated_annealing import SimulatedAnnealingOptimizer
-    from src.classical.genetic_algorithm import GeneticAlgorithmOptimizer
+    # Use Firefly Algorithm for Knapsack
+    fa_knapsack = FireflyKnapsackOptimizer(
+        knapsack_problem,
+        n_fireflies=30,
+        alpha_flip=0.2,
+        max_flips_per_move=3,
+        seed=seed
+    )
+    _, fa_value, fa_history, _ = fa_knapsack.run(max_iter=100)
     
-    print("  Note: Using SA and GA for Knapsack (no dedicated FA variant)")
-    
-    sa_knapsack = SimulatedAnnealingOptimizer(knapsack_problem, initial_temp=100, seed=seed)
-    _, sa_value, sa_history, _ = sa_knapsack.run(max_iter=200)
-    
-    ga_knapsack = GeneticAlgorithmOptimizer(knapsack_problem, pop_size=30, seed=seed)
-    _, ga_value, ga_history, _ = ga_knapsack.run(max_iter=100)
-    
-    # Note: Knapsack is maximization, so we negate for comparison
-    print(f"  SA Final value: {-sa_value:.2f}")
-    print(f"  GA Final value: {-ga_value:.2f}")
+    print(f"  FA Final value: {-fa_value:.2f}")  # Negate for actual value
+    print(f"  Improvement: {-fa_history[0] - (-fa_history[-1]):.2f}")
     
     results.append({
-        'Problem': 'Knapsack (SA)',
+        'Problem': 'Knapsack (FA)',
         'Size': f"{n_items} items",
-        'Initial': sa_history[0],
-        'Final': sa_history[-1],
-        'Improvement': sa_history[0] - sa_history[-1],
-        'History': sa_history
+        'Initial': fa_history[0],
+        'Final': fa_history[-1],
+        'Improvement': fa_history[0] - fa_history[-1],
+        'History': fa_history
     })
     
     plot_convergence(
-        sa_history,
-        title=f"SA on Knapsack Problem ({n_items} items)",
-        ylabel="Negative Value (minimize)",
-        save_path="results/sa_knapsack_convergence.png",
+        [-h for h in fa_history],  # Negate for plotting actual values
+        title=f"FA on Knapsack Problem ({n_items} items)",
+        ylabel="Total Value",
+        save_path="results/fa_knapsack_convergence.png",
         show=False
     )
     
@@ -490,9 +481,9 @@ def main():
         print("    • Rastrigin (multimodal, many local minima)")
         print("    • Ackley (multimodal, nearly flat outer region)")
         print("  ✓ FA/SA/GA on ALL discrete problems:")
-        print("    • Traveling Salesman Problem (TSP)")
-        print("    • 0/1 Knapsack Problem")
-        print("    • Graph Coloring Problem")
+        print("    • Traveling Salesman Problem (TSP) - using SA")
+        print("    • 0/1 Knapsack Problem - using FA!")
+        print("    • Graph Coloring Problem - using SA")
         print("  ✓ Algorithm comparison (FA, SA, HC, GA)")
         print("  ✓ Parameter sensitivity analysis")
         print("\nVisualization files saved to results/:")
@@ -503,8 +494,8 @@ def main():
         print("    • fa_ackley_convergence.png & trajectory.png")
         print("    • fa_all_continuous_comparison.png")
         print("  Discrete problems:")
-        print("    • fa_tsp_tour.png & convergence.png")
-        print("    • sa_knapsack_convergence.png")
+        print("    • sa_tsp_tour.png & convergence.png")
+        print("    • fa_knapsack_convergence.png")
         print("    • sa_coloring_convergence.png")
         print("  Comparisons:")
         print("    • algorithm_comparison.png & log.png")

@@ -121,39 +121,43 @@ print(f"SA:  {sa_fit:.6f} (improvement: {sa_hist[0] - sa_hist[-1]:.4f})")
 print(f"HC:  {hc_fit:.6f} (improvement: {hc_hist[0] - hc_hist[-1]:.4f})")
 ```
 
-#### Example 3: TSP with Multiple Algorithms
+#### Example 3: Knapsack with Firefly Algorithm
 
 ```python
 import sys
 import numpy as np
 sys.path.append('/home/bui-anh-quan/CSTTNT_DA1')
 
-from src.problems.discrete.tsp import TSPProblem
-from src.swarm.fa import FireflyDiscreteTSPOptimizer
+from src.problems.discrete.knapsack import KnapsackProblem
+from src.swarm.fa import FireflyKnapsackOptimizer
 from src.classical.simulated_annealing import SimulatedAnnealingOptimizer
 from src.classical.genetic_algorithm import GeneticAlgorithmOptimizer
 
-# Create TSP instance
+# Create Knapsack instance
 rng = np.random.RandomState(123)
-coords = rng.rand(15, 2) * 100  # 15 cities
-problem = TSPProblem(coords)
+n_items = 30
+values = rng.randint(10, 100, n_items)
+weights = rng.randint(1, 50, n_items)
+capacity = int(0.5 * np.sum(weights))
 
-# Discrete Firefly Algorithm
-fa = FireflyDiscreteTSPOptimizer(problem, n_fireflies=20, seed=42)
-_, fa_length, fa_hist, _ = fa.run(max_iter=100)
+problem = KnapsackProblem(values, weights, capacity)
+
+# Firefly Algorithm
+fa = FireflyKnapsackOptimizer(problem, n_fireflies=25, seed=42)
+_, fa_value, fa_hist, _ = fa.run(max_iter=100)
 
 # Simulated Annealing
-sa = SimulatedAnnealingOptimizer(problem, initial_temp=50, seed=42)
-_, sa_length, sa_hist, _ = sa.run(max_iter=200)
+sa = SimulatedAnnealingOptimizer(problem, initial_temp=100, seed=42)
+_, sa_value, sa_hist, _ = sa.run(max_iter=200)
 
 # Genetic Algorithm
 ga = GeneticAlgorithmOptimizer(problem, pop_size=30, seed=42)
-_, ga_length, ga_hist, _ = ga.run(max_iter=100)
+_, ga_value, ga_hist, _ = ga.run(max_iter=100)
 
-print("TSP Results (15 cities):")
-print(f"Discrete FA: {fa_length:.4f}")
-print(f"SA:          {sa_length:.4f}")
-print(f"GA:          {ga_length:.4f}")
+print("Knapsack Results (30 items):")
+print(f"FA: {-fa_value:.2f}")  # Negate for actual value
+print(f"SA: {-sa_value:.2f}")
+print(f"GA: {-ga_value:.2f}")
 ```
 
 ## Creating Visualizations

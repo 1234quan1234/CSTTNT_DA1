@@ -4,9 +4,9 @@ Swarm intelligence algorithms package.
 This package contains nature-inspired swarm intelligence optimization algorithms.
 """
 
-from .fa import FireflyContinuousOptimizer, FireflyDiscreteTSPOptimizer
+from .fa import FireflyContinuousOptimizer, FireflyKnapsackOptimizer
 
 __all__ = [
     'FireflyContinuousOptimizer',
-    'FireflyDiscreteTSPOptimizer'
+    'FireflyKnapsackOptimizer'
 ]
