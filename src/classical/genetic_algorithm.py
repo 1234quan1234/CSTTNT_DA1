@@ -137,58 +137,8 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
     
     # ========== Crossover Operators ==========
     
-    def _crossover_tsp_pmx(self, parent1: np.ndarray, parent2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Partially Mapped Crossover (PMX) for TSP.
-        
-        Preserves relative order and creates valid permutations.
-        PMX is the standard crossover for permutation-based problems.
-        
-        References
-        ----------
-        Goldberg, D. E., & Lingle, R. (1985). Alleles, loci, and the traveling
-        salesman problem. In Proceedings of the 1st International Conference on
-        Genetic Algorithms (pp. 154-159).
-        """
-        n = len(parent1)
-        
-        # Choose crossover points
-        cx_point1 = self.rng.randint(0, n - 1)
-        cx_point2 = self.rng.randint(cx_point1 + 1, n)
-        
-        # Initialize offspring
-        offspring1 = np.full(n, -1, dtype=int)
-        offspring2 = np.full(n, -1, dtype=int)
-        
-        # Copy middle segment
-        offspring1[cx_point1:cx_point2] = parent1[cx_point1:cx_point2]
-        offspring2[cx_point1:cx_point2] = parent2[cx_point1:cx_point2]
-        
-        # Fill remaining positions using PMX mapping
-        for i in range(n):
-            if i < cx_point1 or i >= cx_point2:
-                # Fill offspring1
-                candidate = parent2[i]
-                while candidate in offspring1:
-                    idx = np.where(parent2 == offspring1[np.where(parent1 == candidate)[0][0]])[0][0]
-                    candidate = parent2[idx]
-                offspring1[i] = candidate
-                
-                # Fill offspring2
-                candidate = parent1[i]
-                while candidate in offspring2:
-                    idx = np.where(parent1 == offspring2[np.where(parent2 == candidate)[0][0]])[0][0]
-                    candidate = parent1[idx]
-                offspring2[i] = candidate
-        
-        # Validate offspring are valid permutations
-        assert len(np.unique(offspring1)) == n, "PMX produced invalid permutation (offspring1)"
-        assert len(np.unique(offspring2)) == n, "PMX produced invalid permutation (offspring2)"
-        
-        return offspring1, offspring2
-    
     def _crossover_binary_onepoint(self, parent1: np.ndarray, parent2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """One-point crossover for binary strings (Knapsack, Graph Coloring)."""
+        """One-point crossover for binary strings (Knapsack)."""
         n = len(parent1)
         cx_point = self.rng.randint(1, n)
         
@@ -201,9 +151,7 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         """Apply crossover based on problem type."""
         repr_type = self.problem.representation_type()
         
-        if repr_type == "tsp":
-            return self._crossover_tsp_pmx(parent1, parent2)
-        elif repr_type in ["knapsack", "graph_coloring"]:
+        if repr_type == "knapsack":
             return self._crossover_binary_onepoint(parent1, parent2)
         elif repr_type == "continuous":
             # Blend crossover for continuous
@@ -216,27 +164,11 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
     
     # ========== Mutation Operators ==========
     
-    def _mutate_tsp(self, individual: np.ndarray) -> np.ndarray:
-        """Mutation for TSP: swap two random cities."""
-        mutated = individual.copy()
-        i, j = self.rng.choice(len(mutated), size=2, replace=False)
-        mutated[i], mutated[j] = mutated[j], mutated[i]
-        return mutated
-    
     def _mutate_knapsack(self, individual: np.ndarray) -> np.ndarray:
         """Mutation for Knapsack: flip one random bit."""
         mutated = individual.copy()
         idx = self.rng.randint(len(mutated))
         mutated[idx] = 1 - mutated[idx]
-        return mutated
-    
-    def _mutate_graph_coloring(self, individual: np.ndarray) -> np.ndarray:
-        """Mutation for Graph Coloring: change one node's color."""
-        mutated = individual.copy()
-        idx = self.rng.randint(len(mutated))
-        # Access num_colors safely
-        num_colors = getattr(self.problem, 'num_colors', 10)  # fallback to 10
-        mutated[idx] = self.rng.randint(num_colors)
         return mutated
     
     def _mutate_continuous(self, individual: np.ndarray) -> np.ndarray:
@@ -248,12 +180,8 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         """Apply mutation based on problem type."""
         repr_type = self.problem.representation_type()
         
-        if repr_type == "tsp":
-            return self._mutate_tsp(individual)
-        elif repr_type == "knapsack":
+        if repr_type == "knapsack":
             return self._mutate_knapsack(individual)
-        elif repr_type == "graph_coloring":
-            return self._mutate_graph_coloring(individual)
         elif repr_type == "continuous":
             return self._mutate_continuous(individual)
         else:
@@ -341,38 +269,110 @@ if __name__ == "__main__":
     print("GENETIC ALGORITHM OPTIMIZER DEMO")
     print("=" * 60)
     
-    # Test 1: TSP
-    print("\n1. Genetic Algorithm on TSP (10 cities)")
-    print("-" * 60)
-    from problems.discrete.tsp import TSPProblem
-    
-    rng_tsp = np.random.RandomState(123)
-    coords = rng_tsp.rand(10, 2) * 10
-    problem_tsp = TSPProblem(coords)
-    
-    ga_tsp = GeneticAlgorithmOptimizer(
-        problem=problem_tsp,
-        pop_size=30,
-        crossover_rate=0.8,
-        mutation_rate=0.2,
-        selection_type="tournament",
-        tournament_size=3,
-        elitism=2,
-        seed=42
-    )
-    
-    best_tour, best_length, history_tsp, _ = ga_tsp.run(max_iter=50)
-    
-    print(f"Initial best tour length: {history_tsp[0]:.4f}")
-    print(f"Final best tour length: {history_tsp[-1]:.4f}")
-    print(f"Best tour: {best_tour}")
-    print(f"Improvement: {history_tsp[0] - history_tsp[-1]:.4f}")
-    
-    # Test 2: Knapsack
-    print("\n2. Genetic Algorithm on Knapsack Problem")
+    # Test on Knapsack
+    print("\n1. Genetic Algorithm on Knapsack Problem")
     print("-" * 60)
     from problems.discrete.knapsack import KnapsackProblem
     
+    values = np.array([10, 20, 30, 40, 50, 60])
+    weights = np.array([1, 2, 3, 4, 5, 6])
+    capacity = 10.0
+    problem_knapsack = KnapsackProblem(values, weights, capacity)
+    
+    ga_knapsack = GeneticAlgorithmOptimizer(
+        problem=problem_knapsack,
+        pop_size=20,
+        crossover_rate=0.7,
+        mutation_rate=0.15,
+        seed=42
+    )
+    
+    best_sel, best_fit, history_k, _ = ga_knapsack.run(max_iter=40)
+    
+    print(f"Initial best fitness: {history_k[0]:.2f}")
+    print(f"Final best fitness: {history_k[-1]:.2f}")
+    print(f"Best selection: {best_sel}")
+    total_weight = np.sum(best_sel * weights)
+    total_value = np.sum(best_sel * values)
+    print(f"Total weight: {total_weight}, Total value: {total_value}")
+    print(f"Feasible: {total_weight <= capacity}")
+    
+    # Test on Rastrigin
+    print("\n2. Genetic Algorithm on Rastrigin Function (2D)")
+    print("-" * 60)
+    from problems.continuous.rastrigin import RastriginProblem
+    
+    problem_rastrigin = RastriginProblem(dim=2)
+    ga_rastrigin = GeneticAlgorithmOptimizer(
+        problem=problem_rastrigin,
+        pop_size=20,
+        crossover_rate=0.8,
+        mutation_rate=0.15,
+        seed=42
+    )
+    
+    best_sol, best_fit, history_s, _ = ga_rastrigin.run(max_iter=50)
+    
+    print(f"Initial best fitness: {history_s[0]:.6f}")
+    print(f"Final best fitness: {history_s[-1]:.6f}")
+    print(f"Best solution: {best_sol}")
+    print(f"Improvement: {history_s[0] - history_s[-1]:.6f}")
+    
+    print("\n" + "=" * 60)
+    print("All Genetic Algorithm tests completed!")
+    print("=" * 60)
+    print(f"Total weight: {total_weight}, Total value: {total_value}")
+    print(f"Feasible: {total_weight <= capacity}")
+    
+    # Test 3: Graph Coloring
+    print("\n3. Genetic Algorithm on Graph Coloring")
+    print("-" * 60)
+    from problems.discrete.graph_coloring import GraphColoringProblem
+    
+    # Create a cycle graph (needs 2 colors if even, 3 if odd)
+    edges = [(0, 1), (1, 2), (2, 3), (3, 0)]  # 4-cycle
+    problem_gc = GraphColoringProblem(num_nodes=4, edges=edges, num_colors=2)
+    
+    ga_gc = GeneticAlgorithmOptimizer(
+        problem=problem_gc,
+        pop_size=20,
+        crossover_rate=0.8,
+        mutation_rate=0.2,
+        seed=42
+    )
+    
+    best_coloring, best_conflicts, history_gc, _ = ga_gc.run(max_iter=30)
+    
+    print(f"Initial best conflicts: {history_gc[0]:.0f}")
+    print(f"Final best conflicts: {history_gc[-1]:.0f}")
+    print(f"Best coloring: {best_coloring}")
+    print(f"Valid 2-coloring found: {history_gc[-1] == 0}")
+    
+    # Test 4: Continuous (Sphere)
+    print("\n4. Genetic Algorithm on Sphere Function (2D)")
+    print("-" * 60)
+    from problems.continuous.sphere import SphereProblem
+    
+    problem_sphere = SphereProblem(dim=2)
+    ga_sphere = GeneticAlgorithmOptimizer(
+        problem=problem_sphere,
+        pop_size=20,
+        crossover_rate=0.8,
+        mutation_rate=0.15,
+        seed=42
+    )
+    
+    best_sol, best_fit, history_s, _ = ga_sphere.run(max_iter=50)
+    
+    print(f"Initial best fitness: {history_s[0]:.6f}")
+    print(f"Final best fitness: {history_s[-1]:.6f}")
+    print(f"Best solution: {best_sol}")
+    print(f"Improvement: {history_s[0] - history_s[-1]:.6f}")
+    
+    print("\n" + "=" * 60)
+    print("All Genetic Algorithm tests completed!")
+    print("=" * 60)
+    print("=" * 60)
     values = np.array([10, 20, 30, 40, 50, 60])
     weights = np.array([1, 2, 3, 4, 5, 6])
     capacity = 10.0

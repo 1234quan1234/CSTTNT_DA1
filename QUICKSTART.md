@@ -39,16 +39,11 @@ Each module has built-in tests. Run them to verify everything works:
 # Test core utilities
 python src/core/utils.py
 
-# Test continuous problems
-python src/problems/continuous/sphere.py
-python src/problems/continuous/rosenbrock.py
+# Test Rastrigin problem
 python src/problems/continuous/rastrigin.py
-python src/problems/continuous/ackley.py
 
-# Test discrete problems
-python src/problems/discrete/tsp.py
+# Test Knapsack problem
 python src/problems/discrete/knapsack.py
-python src/problems/discrete/graph_coloring.py
 
 # Test Firefly Algorithm
 python src/swarm/fa.py
@@ -57,28 +52,27 @@ python src/swarm/fa.py
 python src/classical/hill_climbing.py
 python src/classical/simulated_annealing.py
 python src/classical/genetic_algorithm.py
-python src/classical/graph_search.py
 ```
 
 ### 2. Quick Examples
 
-#### Example 1: Run FA on Sphere Function
+#### Example 1: Run FA on Rastrigin Function
 
 ```python
 import sys
 sys.path.append('/home/bui-anh-quan/CSTTNT_DA1')
 
-from src.problems.continuous.sphere import SphereProblem
+from src.problems.continuous.rastrigin import RastriginProblem
 from src.swarm.fa import FireflyContinuousOptimizer
 
 # Setup
-problem = SphereProblem(dim=5)
+problem = RastriginProblem(dim=5)
 optimizer = FireflyContinuousOptimizer(
     problem=problem,
     n_fireflies=20,
-    alpha=0.2,
+    alpha=0.3,      # Higher for multimodal
     beta0=1.0,
-    gamma=1.0,
+    gamma=0.5,      # Lower for global search
     seed=42
 )
 
@@ -249,8 +243,8 @@ The notebook includes:
   - Higher: Stronger attraction between fireflies
 
 **Recommended for different problems:**
-- **Unimodal (Sphere, Rosenbrock)**: gamma=1.0, alpha=0.2
-- **Multimodal (Rastrigin, Ackley)**: gamma=0.5, alpha=0.3
+- **Multimodal (Rastrigin)**: gamma=0.5, alpha=0.3
+- **Knapsack**: alpha_flip=0.2, max_flips_per_move=3
 
 ### Simulated Annealing
 
@@ -345,6 +339,12 @@ best_solution, best_fitness, history_best, trajectory = optimizer.run(max_iter)
 - `trajectory`: List of populations/solutions per iteration (for animation)
 
 ### All problems implement:
+- `evaluate(x)`: Returns fitness value (minimize)
+- `init_solution(rng, n)`: Generates n random solutions
+- `clip(X)`: Ensures solutions are within valid bounds
+- `representation_type()`: Returns problem type ("continuous", "tsp", etc.)
+
+This allows any optimizer to work with any compatible problem!
 - `evaluate(x)`: Returns fitness value (minimize)
 - `init_solution(rng, n)`: Generates n random solutions
 - `clip(X)`: Ensures solutions are within valid bounds

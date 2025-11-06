@@ -3,12 +3,11 @@
 This folder contains comprehensive unit tests for the AI Search & Optimization Framework.
 
 ## Test Structure
-
 ```
 test/
 ├── __init__.py                      # Package initialization
 ├── test_continuous_problems.py      # Tests for continuous problems (Sphere, Rastrigin)
-├── test_tsp_problem.py             # Tests for TSP problem
+├── test_knapsack_problem.py         # Tests for Knapsack problem
 ├── test_firefly_algorithm.py       # Tests for Firefly Algorithm (continuous & discrete)
 ├── test_classical_algorithms.py    # Tests for classical algorithms (HC, SA, GA)
 ├── run_all_tests.py                # Main test runner
@@ -35,7 +34,7 @@ python test/run_all_tests.py test_firefly_algorithm
 ### Run Individual Test File
 ```bash
 python -m unittest test.test_continuous_problems
-python -m unittest test.test_tsp_problem
+python -m unittest test.test_knapsack_problem
 ```
 
 ### Run Specific Test Class or Method
@@ -53,12 +52,12 @@ python -m unittest test.test_continuous_problems.TestSphereProblem.test_optimum_
 - ✓ Random solution generation
 - ✓ Rastrigin function properties
 
-### TSP Problem (`test_tsp_problem.py`)
-- ✓ City count and coordinates
-- ✓ Distance matrix calculation and symmetry
-- ✓ Tour length calculation
-- ✓ Random tour generation
-- ✓ Invalid tour handling
+### Knapsack Problem (`test_knapsack_problem.py`)
+- ✓ Item weights and values
+- ✓ Capacity constraints
+- ✓ Optimal solution verification
+- ✓ Random instance generation
+- ✓ Invalid input handling
 
 ### Firefly Algorithm (`test_firefly_algorithm.py`)
 - ✓ Continuous optimizer initialization
@@ -155,4 +154,5 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 ```
 
+**Failed tests**: Check the error message and traceback for details. Ensure all source files are present and correct.
 **Failed tests**: Check the error message and traceback for details. Ensure all source files are present and correct.

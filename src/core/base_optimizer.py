@@ -79,9 +79,7 @@ class BaseOptimizer(ABC):
         best_solution : np.ndarray
             The best solution found during optimization.
             - For continuous problems: shape (dim,) real-valued vector
-            - For TSP: shape (num_cities,) integer permutation
             - For knapsack: shape (num_items,) binary 0/1 vector
-            - For graph coloring: shape (num_nodes,) integer color assignment
         
         best_fitness : float
             The objective function value of the best solution (minimization).
@@ -98,9 +96,9 @@ class BaseOptimizer(ABC):
             Trajectory of the population/solution at each iteration.
             Used for visualization and analysis of convergence behavior.
             - For population-based algorithms (FA, GA): 
-              trajectory[t] has shape (population_size, dim) or (population_size, problem_size)
+              trajectory[t] has shape (population_size, dim) or (population_size, num_items)
             - For single-solution algorithms (Hill Climbing, SA):
-              trajectory[t] has shape (1, dim) or (1, problem_size)
+              trajectory[t] has shape (1, dim) or (1, num_items)
               (wrap solution in a list/array for consistency)
         
         Notes
@@ -129,3 +127,4 @@ class BaseOptimizer(ABC):
         >>> assert np.allclose(sol1, sol2)  # Should be identical
         """
         pass
+

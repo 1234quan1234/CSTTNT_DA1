@@ -23,9 +23,7 @@ class HillClimbingOptimizer(BaseOptimizer):
     
     Supports both continuous and discrete optimization problems:
     - Continuous: generates neighbors by adding Gaussian noise
-    - TSP: generates neighbors by swapping two cities
     - Knapsack: generates neighbors by flipping one bit
-    - Graph Coloring: generates neighbors by changing one node's color
     
     The algorithm is greedy: it only accepts improvements (better fitness).
     It terminates when stuck at a local optimum or max_iter is reached.
@@ -88,33 +86,11 @@ class HillClimbingOptimizer(BaseOptimizer):
         neighbor = self.current_solution + noise
         return self.problem.clip(neighbor)
     
-    def _generate_neighbor_tsp(self) -> np.ndarray:
-        """Generate a neighbor for TSP by swapping two cities."""
-        neighbor = self.current_solution.copy()
-        num_cities = len(neighbor)
-        i, j = self.rng.choice(num_cities, size=2, replace=False)
-        neighbor[i], neighbor[j] = neighbor[j], neighbor[i]
-        return neighbor
-    
     def _generate_neighbor_knapsack(self) -> np.ndarray:
         """Generate a neighbor for Knapsack by flipping one bit."""
         neighbor = self.current_solution.copy()
         flip_idx = self.rng.randint(len(neighbor))
         neighbor[flip_idx] = 1 - neighbor[flip_idx]
-        return neighbor
-    
-    def _generate_neighbor_graph_coloring(self) -> np.ndarray:
-        """Generate a neighbor for Graph Coloring by changing one node's color."""
-        neighbor = self.current_solution.copy()
-        node_idx = self.rng.randint(len(neighbor))
-        # Get number of colors from problem
-        num_colors = self.problem.num_colors
-        # Change to a different random color
-        current_color = neighbor[node_idx]
-        new_color = self.rng.randint(num_colors)
-        while new_color == current_color and num_colors > 1:
-            new_color = self.rng.randint(num_colors)
-        neighbor[node_idx] = new_color
         return neighbor
     
     def _generate_neighbor(self) -> np.ndarray:
@@ -123,12 +99,8 @@ class HillClimbingOptimizer(BaseOptimizer):
         
         if repr_type == "continuous":
             return self._generate_neighbor_continuous()
-        elif repr_type == "tsp":
-            return self._generate_neighbor_tsp()
         elif repr_type == "knapsack":
             return self._generate_neighbor_knapsack()
-        elif repr_type == "graph_coloring":
-            return self._generate_neighbor_graph_coloring()
         else:
             raise NotImplementedError(f"Unsupported problem type: {repr_type}")
     
@@ -214,9 +186,37 @@ if __name__ == "__main__":
     print(f"Best solution: {best_sol}")
     print(f"Improvement: {history[0] - history[-1]:.6f}")
     
-    # Test 2: TSP
-    print("\n2. Hill Climbing on TSP (10 cities)")
+    # Test 3: Knapsack
+    print("\n3. Hill Climbing on Knapsack Problem")
     print("-" * 60)
+    from problems.discrete.knapsack import KnapsackProblem
+    
+    values = np.array([10, 20, 30, 40, 50])
+    weights = np.array([1, 2, 3, 4, 5])
+    capacity = 7.0
+    problem_knapsack = KnapsackProblem(values, weights, capacity)
+    
+    hc_knapsack = HillClimbingOptimizer(
+        problem=problem_knapsack,
+        num_neighbors=10,
+        seed=42
+    )
+    
+    best_sel, best_fit_k, history_k, _ = hc_knapsack.run(max_iter=30)
+    
+    print(f"Initial fitness: {history_k[0]:.2f}")
+    print(f"Final fitness: {history_k[-1]:.2f}")
+    print(f"Best selection: {best_sel}")
+    total_weight = np.sum(best_sel * weights)
+    total_value = np.sum(best_sel * values)
+    print(f"Total weight: {total_weight}, Total value: {total_value}")
+    print(f"Feasible: {total_weight <= capacity}")
+    
+    print("\n" + "=" * 60)
+    print("All Hill Climbing tests completed!")
+    print("=" * 60)
+    print("All Hill Climbing tests completed!")
+    print("=" * 60)
     from problems.discrete.tsp import TSPProblem
     
     rng_tsp = np.random.RandomState(123)

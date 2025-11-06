@@ -1,15 +1,15 @@
 """
 Continuous optimization benchmark functions.
 
-Classic test functions for evaluating continuous optimization algorithms.
-All functions are minimization problems with known global optima.
+This module contains the Rastrigin function for testing continuous
+optimization algorithms.
 """
 
-from .sphere import SphereProblem
-from .rosenbrock import RosenbrockProblem
 from .rastrigin import RastriginProblem
-from .ackley import AckleyProblem
 
+__all__ = [
+    'RastriginProblem'
+]
 __all__ = [
     'SphereProblem',
     'RosenbrockProblem', 

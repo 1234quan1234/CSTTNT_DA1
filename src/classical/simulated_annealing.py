@@ -28,9 +28,7 @@ class SimulatedAnnealingOptimizer(BaseOptimizer):
     
     Supports both continuous and discrete problems:
     - Continuous: generates neighbors by adding Gaussian noise
-    - TSP: generates neighbors by swapping two cities
     - Knapsack: generates neighbors by flipping one bit
-    - Graph Coloring: generates neighbors by changing one node's color
     
     Parameters
     ----------
@@ -69,8 +67,8 @@ class SimulatedAnnealingOptimizer(BaseOptimizer):
     
     Examples
     --------
-    >>> from problems.continuous.sphere import SphereProblem
-    >>> problem = SphereProblem(dim=2)
+    >>> from problems.continuous.rastrigin import RastriginProblem
+    >>> problem = RastriginProblem(dim=2)
     >>> optimizer = SimulatedAnnealingOptimizer(problem, seed=42)
     >>> best_sol, best_fit, history, trajectory = optimizer.run(max_iter=100)
     """
@@ -103,31 +101,11 @@ class SimulatedAnnealingOptimizer(BaseOptimizer):
         neighbor = self.current_solution + noise
         return self.problem.clip(neighbor)
     
-    def _generate_neighbor_tsp(self) -> np.ndarray:
-        """Generate a neighbor for TSP by swapping two cities."""
-        neighbor = self.current_solution.copy()
-        num_cities = len(neighbor)
-        i, j = self.rng.choice(num_cities, size=2, replace=False)
-        neighbor[i], neighbor[j] = neighbor[j], neighbor[i]
-        return neighbor
-    
     def _generate_neighbor_knapsack(self) -> np.ndarray:
         """Generate a neighbor for Knapsack by flipping one bit."""
         neighbor = self.current_solution.copy()
         flip_idx = self.rng.randint(len(neighbor))
         neighbor[flip_idx] = 1 - neighbor[flip_idx]
-        return neighbor
-    
-    def _generate_neighbor_graph_coloring(self) -> np.ndarray:
-        """Generate a neighbor for Graph Coloring by changing one node's color."""
-        neighbor = self.current_solution.copy()
-        node_idx = self.rng.randint(len(neighbor))
-        num_colors = self.problem.num_colors
-        current_color = neighbor[node_idx]
-        new_color = self.rng.randint(num_colors)
-        while new_color == current_color and num_colors > 1:
-            new_color = self.rng.randint(num_colors)
-        neighbor[node_idx] = new_color
         return neighbor
     
     def _generate_neighbor(self) -> np.ndarray:
@@ -136,12 +114,8 @@ class SimulatedAnnealingOptimizer(BaseOptimizer):
         
         if repr_type == "continuous":
             return self._generate_neighbor_continuous()
-        elif repr_type == "tsp":
-            return self._generate_neighbor_tsp()
         elif repr_type == "knapsack":
             return self._generate_neighbor_knapsack()
-        elif repr_type == "graph_coloring":
-            return self._generate_neighbor_graph_coloring()
         else:
             raise NotImplementedError(f"Unsupported problem type: {repr_type}")
     
@@ -240,49 +214,52 @@ if __name__ == "__main__":
     print("SIMULATED ANNEALING OPTIMIZER DEMO")
     print("=" * 60)
     
-    # Test 1: Continuous problem (Sphere)
-    print("\n1. Simulated Annealing on Sphere Function (2D)")
+    # Test on Rastrigin
+    print("\n1. Simulated Annealing on Rastrigin Function (2D)")
     print("-" * 60)
-    from problems.continuous.sphere import SphereProblem
+    from problems.continuous.rastrigin import RastriginProblem
     
-    problem_sphere = SphereProblem(dim=2)
-    sa_sphere = SimulatedAnnealingOptimizer(
-        problem=problem_sphere,
-        initial_temp=100.0,
+    problem_rastrigin = RastriginProblem(dim=2)
+    sa_rastrigin = SimulatedAnnealingOptimizer(
+        problem=problem_rastrigin,
+        initial_temp=100,
         cooling_rate=0.95,
-        step_size=0.5,
         seed=42
     )
     
-    best_sol, best_fit, history, trajectory = sa_sphere.run(max_iter=100)
+    best_sol, best_fit, history, _ = sa_rastrigin.run(max_iter=100)
     
     print(f"Initial fitness: {history[0]:.6f}")
     print(f"Final fitness: {history[-1]:.6f}")
     print(f"Best solution: {best_sol}")
     print(f"Improvement: {history[0] - history[-1]:.6f}")
     
-    # Test 2: TSP
-    print("\n2. Simulated Annealing on TSP (10 cities)")
+        # Test on Knapsack
+    print("\n2. Simulated Annealing on Knapsack Problem")
     print("-" * 60)
-    from problems.discrete.tsp import TSPProblem
+    from problems.discrete.knapsack import KnapsackProblem
     
-    rng_tsp = np.random.RandomState(123)
-    coords = rng_tsp.rand(10, 2) * 10
-    problem_tsp = TSPProblem(coords)
+    values = np.array([10, 20, 30, 40, 50, 60])
+    weights = np.array([1, 2, 3, 4, 5, 6])
+    capacity = 10.0
+    problem_knapsack = KnapsackProblem(values, weights, capacity)
     
-    sa_tsp = SimulatedAnnealingOptimizer(
-        problem=problem_tsp,
-        initial_temp=50.0,
-        cooling_rate=0.98,
+    sa_knapsack = SimulatedAnnealingOptimizer(
+        problem=problem_knapsack,
+        initial_temp=10.0,
+        cooling_rate=0.95,
         seed=42
     )
     
-    best_tour, best_length, history_tsp, _ = sa_tsp.run(max_iter=200)
+    best_sel, best_fit_k, history_k, _ = sa_knapsack.run(max_iter=100)
     
-    print(f"Initial tour length: {history_tsp[0]:.4f}")
-    print(f"Final tour length: {history_tsp[-1]:.4f}")
-    print(f"Best tour: {best_tour}")
-    print(f"Improvement: {history_tsp[0] - history_tsp[-1]:.4f}")
+    print(f"Initial fitness: {history_k[0]:.2f}")
+    print(f"Final fitness: {history_k[-1]:.2f}")
+    print(f"Best selection: {best_sel}")
+    total_weight = np.sum(best_sel * weights)
+    total_value = np.sum(best_sel * values)
+    print(f"Total weight: {total_weight}, Total value: {total_value}")
+    print(f"Feasible: {total_weight <= capacity}")
     
     # Test 3: Rastrigin (multimodal - SA should handle better than HC)
     print("\n3. Simulated Annealing on Rastrigin (2D, multimodal)")
@@ -306,30 +283,6 @@ if __name__ == "__main__":
     print(f"Improvement: {history_r[0] - history_r[-1]:.6f}")
     print(f"(Note: Rastrigin is highly multimodal, SA helps escape local minima)")
     
-    # Test 4: Graph Coloring
-    print("\n4. Simulated Annealing on Graph Coloring (Triangle)")
-    print("-" * 60)
-    from problems.discrete.graph_coloring import GraphColoringProblem
-    
-    edges = [(0, 1), (1, 2), (2, 0)]  # Triangle
-    problem_gc = GraphColoringProblem(num_nodes=3, edges=edges, num_colors=3)
-    
-    sa_gc = SimulatedAnnealingOptimizer(
-        problem=problem_gc,
-        initial_temp=10.0,
-        cooling_rate=0.95,
-        seed=42
-    )
-    
-    best_coloring, best_conflicts, history_gc, _ = sa_gc.run(max_iter=100)
-    
-    print(f"Initial conflicts: {history_gc[0]:.0f}")
-    print(f"Final conflicts: {history_gc[-1]:.0f}")
-    print(f"Best coloring: {best_coloring}")
-    print(f"Valid coloring: {history_gc[-1] == 0}")
-    
     print("\n" + "=" * 60)
-    print("All Simulated Annealing tests completed!")
-    print("=" * 60)
     print("All Simulated Annealing tests completed!")
     print("=" * 60)

@@ -81,14 +81,13 @@ class FireflyContinuousOptimizer(BaseOptimizer):
     **Space Complexity:** O(n · d)
     
     **Parameter Tuning Guidelines:**
-    - Unimodal problems (Sphere, Rosenbrock): gamma=1.0, alpha=0.2
-    - Multimodal problems (Rastrigin, Ackley): gamma=0.5, alpha=0.3
+    - Multimodal problems (Rastrigin): gamma=0.5, alpha=0.3
     - High-dimensional (d>20): Increase n_fireflies, decrease gamma
     
     Examples
     --------
-    >>> from problems.continuous.sphere import SphereProblem
-    >>> problem = SphereProblem(dim=2)
+    >>> from problems.continuous.rastrigin import RastriginProblem
+    >>> problem = RastriginProblem(dim=2)
     >>> optimizer = FireflyContinuousOptimizer(problem, n_fireflies=20, seed=42)
     >>> best_sol, best_fit, history, trajectory = optimizer.run(max_iter=50)
     >>> print(f"Best fitness: {best_fit:.6f}")
@@ -520,34 +519,8 @@ if __name__ == "__main__":
     print("FIREFLY ALGORITHM COMPREHENSIVE DEMO")
     print("=" * 70)
     
-    # Test 1: Continuous FA on Sphere function
-    print("\n[TEST 1] Continuous FA on Sphere Function (2D)")
-    print("-" * 70)
-    from problems.continuous.sphere import SphereProblem
-    
-    problem_sphere = SphereProblem(dim=2)
-    fa_continuous = FireflyContinuousOptimizer(
-        problem=problem_sphere,
-        n_fireflies=15,
-        alpha=0.2,
-        beta0=1.0,
-        gamma=1.0,
-        seed=42
-    )
-    
-    best_sol, best_fit, history, trajectory = fa_continuous.run(max_iter=30)
-    
-    print(f"Problem: Minimize f(x,y) = x² + y²")
-    print(f"Global minimum: f(0,0) = 0")
-    print(f"\nResults:")
-    print(f"  Initial best fitness: {history[0]:.6f}")
-    print(f"  Final best fitness:   {history[-1]:.6f}")
-    print(f"  Best solution:        [{best_sol[0]:.6f}, {best_sol[1]:.6f}]")
-    print(f"  Improvement:          {history[0] - history[-1]:.6f}")
-    print(f"  Convergence:          {history[0]:.4f} → {history[-1]:.4f}")
-    
-    # Test 2: Continuous FA on Rastrigin (multimodal)
-    print("\n[TEST 2] Continuous FA on Rastrigin Function (2D, multimodal)")
+    # Test 1: Continuous FA on Rastrigin (multimodal)
+    print("\n[TEST 1] Continuous FA on Rastrigin Function (2D, multimodal)")
     print("-" * 70)
     from problems.continuous.rastrigin import RastriginProblem
     
@@ -555,9 +528,9 @@ if __name__ == "__main__":
     fa_rastrigin = FireflyContinuousOptimizer(
         problem=problem_rastrigin,
         n_fireflies=25,
-        alpha=0.3,      # Higher alpha for multimodal
+        alpha=0.3,
         beta0=1.0,
-        gamma=0.5,      # Lower gamma for more global search
+        gamma=0.5,
         seed=42
     )
     
@@ -571,8 +544,8 @@ if __name__ == "__main__":
     print(f"  Best solution:        [{best_sol_r[0]:.6f}, {best_sol_r[1]:.6f}]")
     print(f"  Improvement:          {history_r[0] - history_r[-1]:.6f}")
     
-    # Test 3: Discrete FA on Knapsack
-    print("\n[TEST 3] Discrete FA on 0/1 Knapsack Problem")
+    # Test 2: Discrete FA on Knapsack
+    print("\n[TEST 2] Discrete FA on 0/1 Knapsack Problem")
     print("-" * 70)
     from problems.discrete.knapsack import KnapsackProblem
     
@@ -595,7 +568,7 @@ if __name__ == "__main__":
     
     best_sol_k, best_fit_k, history_k, _ = fa_knapsack.run(max_iter=80)
     
-    total_value = -best_fit_k  # Negate because we minimize
+    total_value = -best_fit_k
     total_weight = np.sum(best_sol_k * weights)
     
     print(f"Problem: 0/1 Knapsack with {n_items} items")
@@ -603,6 +576,33 @@ if __name__ == "__main__":
     print(f"\nResults:")
     print(f"  Initial best value: {-history_k[0]:.2f}")
     print(f"  Final best value:   {total_value:.2f}")
+    print(f"  Best solution: {best_sol_k}")
+    print(f"  Total weight: {total_weight:.2f} / {capacity}")
+    print(f"  Feasible: {total_weight <= capacity}")
+    print(f"  Improvement: {-history_k[0] - (-history_k[-1]):.2f}")
+    
+    # Test 3: Reproducibility test
+    print("\n[TEST 3] Reproducibility Test")
+    print("-" * 70)
+    
+    fa1 = FireflyContinuousOptimizer(problem_rastrigin, n_fireflies=10, seed=999)
+    fa2 = FireflyContinuousOptimizer(problem_rastrigin, n_fireflies=10, seed=999)
+    
+    _, fit1, hist1, _ = fa1.run(max_iter=20)
+    _, fit2, hist2, _ = fa2.run(max_iter=20)
+    
+    print(f"Run 1 final fitness: {fit1:.10f}")
+    print(f"Run 2 final fitness: {fit2:.10f}")
+    print(f"Identical results:   {fit1 == fit2}")
+    
+    if fit1 == fit2:
+        print("✓ Reproducibility test PASSED")
+    else:
+        print("✗ Reproducibility test FAILED")
+    
+    print("\n" + "=" * 70)
+    print("All Firefly Algorithm tests completed successfully!")
+    print("=" * 70)
     print(f"  Best solution: {best_sol_k}")
     print(f"  Total weight: {total_weight:.2f} / {capacity}")
     print(f"  Feasible: {total_weight <= capacity}")

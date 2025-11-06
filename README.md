@@ -19,15 +19,10 @@ This project implements and benchmarks multiple optimization algorithms:
 ### Benchmark Problems
 
 #### Continuous Functions
-- **Sphere** - Simple convex unimodal function
-- **Rosenbrock** - Narrow curved valley (Banana function)
-- **Rastrigin** - Highly multimodal with many local minima
-- **Ackley** - Multimodal with nearly flat outer region
+- **Rastrigin** - Highly multimodal with many local minima (main test function)
 
 #### Discrete Problems
-- **Traveling Salesman Problem (TSP)** - Find shortest tour
 - **0/1 Knapsack** - Maximize value within capacity constraint
-- **Graph Coloring** - Minimize color conflicts
 
 ## 📁 Project Structure
 
@@ -370,6 +365,11 @@ This project is for educational purposes as part of the CSTTNT course at HCMUS.
 ---
 
 **Note:** This is a research and educational project implementing classical metaheuristic algorithms.
+For production use, consider:
+- More optimized implementations (vectorization, JIT compilation)
+- Advanced variants (adaptive parameters, hybrid methods)
+- Parallel/distributed execution
+- Comprehensive benchmarking on standard test suites
 For production use, consider:
 - More optimized implementations (vectorization, JIT compilation)
 - Advanced variants (adaptive parameters, hybrid methods)

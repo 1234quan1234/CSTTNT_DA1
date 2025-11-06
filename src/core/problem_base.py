@@ -32,9 +32,7 @@ class ProblemBase(ABC):
         x : np.ndarray
             The solution to evaluate.
             - For continuous problems: shape (dim,) real-valued vector
-            - For TSP: shape (num_cities,) integer permutation
             - For knapsack: shape (num_items,) binary 0/1 vector
-            - For graph coloring: shape (num_nodes,) integer color assignment
         
         Returns
         -------
@@ -49,14 +47,14 @@ class ProblemBase(ABC):
         pass
 
     @abstractmethod
-    def representation_type(self) -> Literal["continuous", "tsp", "knapsack", "graph_coloring"]:
+    def representation_type(self) -> Literal["continuous", "knapsack"]:
         """
         Return the type of solution representation this problem uses.
         
         Returns
         -------
         repr_type : str
-            One of: "continuous", "tsp", "knapsack", "graph_coloring"
+            One of: "continuous", "knapsack"
             This tells optimizers how to handle solution representation
             and what operators to use (e.g., crossover, mutation, move).
         """
@@ -79,15 +77,12 @@ class ProblemBase(ABC):
         solutions : np.ndarray
             Array of n random solutions.
             - For continuous problems: shape (n, dim)
-            - For TSP: shape (n, num_cities) with integer permutations
             - For knapsack: shape (n, num_items) with binary 0/1 values
-            - For graph coloring: shape (n, num_nodes) with integer colors
         
         Notes
         -----
         Solutions should be valid according to problem constraints.
-        For example, TSP solutions should be valid permutations,
-        knapsack solutions can be repaired to satisfy capacity constraints.
+        Knapsack solutions are repaired to satisfy capacity constraints.
         """
         pass
 
