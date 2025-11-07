@@ -19,7 +19,7 @@ from ..core.problem_base import ProblemBase
 
 class HillClimbingOptimizer(BaseOptimizer):
     """
-    Hill Climbing local search optimizer.
+    Hill Climbing optimizer.
     
     Supports both continuous and discrete optimization problems:
     - Continuous: generates neighbors by adding Gaussian noise
@@ -32,10 +32,12 @@ class HillClimbingOptimizer(BaseOptimizer):
     ----------
     problem : ProblemBase
         The optimization problem.
-    num_neighbors : int, default=10
-        Number of neighbors to generate and evaluate per iteration.
     step_size : float, default=0.1
-        Step size for continuous problems (Gaussian noise std dev).
+        Step size for generating neighbors (Gaussian std dev for continuous).
+    num_neighbors : int, default=10
+        Number of neighbors to generate at each iteration.
+    restart_interval : int, default=None
+        Restart from random solution if no improvement for this many iterations.
     seed : int or None, default=None
         Random seed for reproducibility.
     
@@ -65,19 +67,24 @@ class HillClimbingOptimizer(BaseOptimizer):
     def __init__(
         self,
         problem: ProblemBase,
-        num_neighbors: int = 10,
         step_size: float = 0.1,
+        num_neighbors: int = 10,
+        restart_interval: int = None,
         seed: int = None
     ):
         """Initialize Hill Climbing optimizer."""
         self.problem = problem
-        self.num_neighbors = num_neighbors
         self.step_size = step_size
+        self.num_neighbors = num_neighbors
+        self.restart_interval = restart_interval
         self.seed = seed
         self.rng = np.random.RandomState(seed)
         
         self.current_solution = None
         self.current_fitness = None
+        self.best_solution = None
+        self.best_fitness = None
+        self.no_improvement_count = 0
     
     def _generate_neighbor_continuous(self) -> np.ndarray:
         """Generate a neighbor for continuous problems by adding Gaussian noise."""
@@ -122,40 +129,61 @@ class HillClimbingOptimizer(BaseOptimizer):
         history_best : List[float]
             Best fitness at each iteration.
         trajectory : List[np.ndarray]
-            Solution at each iteration, shape (1, problem_size).
+            Current solution at each iteration.
         """
         # Initialize with random solution
         self.current_solution = self.problem.init_solution(self.rng, n=1)[0]
         self.current_fitness = self.problem.evaluate(self.current_solution)
         
+        # Track best solution
+        self.best_solution = self.current_solution.copy()
+        self.best_fitness = self.current_fitness
+        self.no_improvement_count = 0
+        
         history_best = []
         trajectory = []
         
         for iteration in range(max_iter):
-            # Generate and evaluate neighbors
-            improved = False
+            # Check for restart
+            if (self.restart_interval is not None and 
+                self.no_improvement_count >= self.restart_interval):
+                # Restart from random solution
+                self.current_solution = self.problem.init_solution(self.rng, n=1)[0]
+                self.current_fitness = self.problem.evaluate(self.current_solution)
+                self.no_improvement_count = 0
             
+            # Generate neighbors
+            improved = False
             for _ in range(self.num_neighbors):
                 neighbor = self._generate_neighbor()
                 neighbor_fitness = self.problem.evaluate(neighbor)
                 
-                # Accept if better (greedy)
+                # First improvement: accept immediately
                 if neighbor_fitness < self.current_fitness:
                     self.current_solution = neighbor
                     self.current_fitness = neighbor_fitness
                     improved = True
+                    
+                    # Update best if needed
+                    if self.current_fitness < self.best_fitness:
+                        self.best_solution = self.current_solution.copy()
+                        self.best_fitness = self.current_fitness
+                    
+                    break  # First improvement strategy
+            
+            # Update no improvement counter
+            if improved:
+                self.no_improvement_count = 0
+            else:
+                self.no_improvement_count += 1
             
             # Track progress
-            history_best.append(self.current_fitness)
+            history_best.append(self.best_fitness)
             trajectory.append(self.current_solution.reshape(1, -1).copy())
-            
-            # Early stopping if stuck at local optimum
-            # (no improvement in this iteration)
-            # Note: We continue anyway to fill max_iter for consistency
         
         return (
-            self.current_solution.copy(),
-            self.current_fitness,
+            self.best_solution.copy(),
+            self.best_fitness,
             history_best,
             trajectory
         )

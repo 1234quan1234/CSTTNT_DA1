@@ -128,6 +128,46 @@ python src/problems/discrete/knapsack.py
 python test/run_all_tests.py
 ```
 
+## Running Benchmarks
+
+### Quick Test
+```bash
+# Test all benchmarks quickly
+python benchmark/test_benchmarks.py --quick
+
+# Run quick benchmark suite
+python benchmark/run_all.py --quick
+```
+
+### Full Benchmark Suite
+```bash
+# Run all benchmarks with all configurations
+python benchmark/run_all.py --full
+
+# Run specific problem benchmark
+python benchmark/run_rastrigin.py --config quick_convergence
+python benchmark/run_tsp.py --config small
+python benchmark/run_knapsack.py --config medium
+```
+
+### Analyze Results
+```bash
+# Analyze all results
+python benchmark/analyze_results.py
+
+# Analyze specific benchmark
+python benchmark/analyze_results.py --problem rastrigin --config quick_convergence
+```
+
+### Using pytest
+```bash
+# Run all tests
+pytest benchmark/test_benchmarks.py -v
+
+# Run specific test class
+pytest benchmark/test_benchmarks.py::TestRastriginBenchmark -v
+```
+
 ## 💡 Usage Examples
 
 ### Example 1: Rastrigin Function with Firefly Algorithm
