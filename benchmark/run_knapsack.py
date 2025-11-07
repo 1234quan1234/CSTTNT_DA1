@@ -10,6 +10,7 @@ import numpy as np
 import json
 import time
 from pathlib import Path
+import multiprocessing as mp
 
 from src.problems.discrete.knapsack import KnapsackProblem
 from src.swarm.fa import FireflyKnapsackOptimizer
@@ -62,34 +63,62 @@ def solve_knapsack_dp(values, weights, capacity):
     return optimal_value, selection
 
 
-def run_single_experiment(algorithm_name, optimizer, max_iter, seed, problem):
-    """Run a single Knapsack experiment."""
-    start_time = time.time()
-    best_sol, best_fit, history, trajectory = optimizer.run(max_iter=max_iter)
-    elapsed_time = time.time() - start_time
+def run_single_knapsack_experiment(algo_name, problem, params, seed, max_iter):
+    """Run single Knapsack experiment (for parallel execution)."""
+    import time
+    import numpy as np
+    from src.swarm.fa import FireflyKnapsackOptimizer
+    from src.classical.simulated_annealing import SimulatedAnnealingOptimizer
+    from src.classical.hill_climbing import HillClimbingOptimizer
+    from src.classical.genetic_algorithm import GeneticAlgorithmOptimizer
     
-    # Calculate actual value (fitness is negative value)
-    total_value = -best_fit
+    algo_map = {
+        'FA': FireflyKnapsackOptimizer,
+        'SA': SimulatedAnnealingOptimizer,
+        'HC': HillClimbingOptimizer,
+        'GA': GeneticAlgorithmOptimizer
+    }
+    
+    optimizer = algo_map[algo_name](problem=problem, seed=seed, **params)
+    
+    start_time = time.time()
+    best_sol, best_fitness, history, _ = optimizer.run(max_iter=max_iter)
+    elapsed = time.time() - start_time
+    
+    total_value = -best_fitness
     total_weight = np.sum(best_sol * problem.weights)
-    is_feasible = total_weight <= problem.capacity
+    is_feasible = bool(total_weight <= problem.capacity)
     
     return {
-        'algorithm': algorithm_name,
-        'seed': seed,
+        'algorithm': algo_name,
+        'seed': int(seed),
         'best_value': float(total_value),
-        'best_fitness': float(best_fit),
+        'best_fitness': float(best_fitness),
         'total_weight': float(total_weight),
         'capacity': float(problem.capacity),
-        'is_feasible': bool(is_feasible),
-        'history': [-h for h in history],  # Convert to values
-        'elapsed_time': elapsed_time,
+        'is_feasible': is_feasible,
+        'history': [float(h) for h in history],
+        'elapsed_time': float(elapsed),
         'items_selected': int(np.sum(best_sol)),
         'capacity_utilization': float(total_weight / problem.capacity)
     }
 
 
-def run_knapsack_benchmark(size=50, instance_type='all', output_dir='benchmark/results/knapsack'):
-    """Run Knapsack benchmark for specified configurations."""
+def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='benchmark/results/knapsack', n_jobs=None):
+    """
+    Run Knapsack benchmark with parallel execution.
+    
+    Parameters
+    ----------
+    size : int
+        Number of items
+    instance_type : str
+        Instance type
+    output_dir : str
+        Output directory
+    n_jobs : int, optional
+        Number of parallel jobs
+    """
     
     # Get all configs or filter by size/type
     all_configs = get_knapsack_configs()
@@ -109,6 +138,9 @@ def run_knapsack_benchmark(size=50, instance_type='all', output_dir='benchmark/r
     
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+    
+    if n_jobs is None:
+        n_jobs = max(1, mp.cpu_count() - 1)
     
     for config_idx, config in enumerate(all_configs, 1):
         print(f"\n{'-' * 70}")
@@ -140,71 +172,33 @@ def run_knapsack_benchmark(size=50, instance_type='all', output_dir='benchmark/r
         
         # Setup algorithms
         algorithms = {
-            'FA': {
-                'factory': lambda s: FireflyKnapsackOptimizer(
-                    problem=problem,
-                    n_fireflies=config.fa_params['n_fireflies'],
-                    alpha_flip=config.fa_params['alpha_flip'],
-                    max_flips_per_move=config.fa_params['max_flips_per_move'],
-                    repair_method=config.fa_params['repair_method'],
-                    seed=s
-                ),
-                'max_iter': max_iter_fa
-            },
-            'SA': {
-                'factory': lambda s: SimulatedAnnealingOptimizer(
-                    problem=problem,
-                    initial_temp=config.sa_params['initial_temp'],
-                    cooling_rate=config.sa_params['cooling_rate'],
-                    seed=s
-                ),
-                'max_iter': max_iter_single
-            },
-            'HC': {
-                'factory': lambda s: HillClimbingOptimizer(
-                    problem=problem,
-                    num_neighbors=config.hc_params['num_neighbors'],
-                    restart_interval=config.hc_params['restart_interval'],
-                    seed=s
-                ),
-                'max_iter': max_iter_single
-            },
-            'GA': {
-                'factory': lambda s: GeneticAlgorithmOptimizer(
-                    problem=problem,
-                    pop_size=config.ga_params['pop_size'],
-                    crossover_rate=config.ga_params['crossover_rate'],
-                    mutation_rate=1.0 / config.n_items,  # 1/n
-                    tournament_size=config.ga_params['tournament_size'],
-                    elitism=config.ga_params['elitism'],
-                    seed=s
-                ),
-                'max_iter': max_iter_ga
-            }
+            'FA': (config.fa_params, max_iter_fa),
+            'SA': (config.sa_params, max_iter_single),
+            'HC': (config.hc_params, max_iter_single),
+            'GA': (config.ga_params, max_iter_ga)
         }
         
-        # Run experiments
-        for algo_name, algo_config in algorithms.items():
-            print(f"\n  Running {algo_name}...")
+        seeds = list(range(30))
+        
+        # Run experiments for each algorithm IN PARALLEL
+        for algo_name, (algo_params, max_iter) in algorithms.items():
+            print(f"\nRunning {algo_name} ({len(seeds)} runs in parallel)...")
             
-            results = []
-            seeds = list(range(30))
+            # Prepare arguments for parallel execution
+            args_list = [
+                (algo_name, problem, algo_params, seed, max_iter)
+                for seed in seeds
+            ]
             
-            for i, seed in enumerate(seeds):
-                optimizer = algo_config['factory'](seed)
-                result = run_single_experiment(
-                    algo_name, optimizer, algo_config['max_iter'], seed, problem
-                )
-                
-                # Add DP optimal if available
-                if dp_optimal_value is not None:
-                    result['dp_optimal_value'] = dp_optimal_value
-                    result['optimality_gap'] = (dp_optimal_value - result['best_value']) / dp_optimal_value * 100
-                
-                results.append(result)
-                
-                if (i + 1) % 10 == 0:
-                    print(f"    Completed {i + 1}/30 runs")
+            # Run in parallel
+            with mp.Pool(processes=n_jobs) as pool:
+                results = pool.starmap(run_single_knapsack_experiment, args_list)
+            
+            # Add DP optimal if available
+            if dp_optimal_value is not None:
+                for result in results:
+                    result['dp_optimal_value'] = float(dp_optimal_value)
+                    result['optimality_gap'] = float((dp_optimal_value - result['best_value']) / dp_optimal_value * 100)
             
             # Save results
             filename = f"n{config.n_items}_{config.instance_type}_seed{config.seed}_{algo_name}.json"
@@ -213,11 +207,11 @@ def run_knapsack_benchmark(size=50, instance_type='all', output_dir='benchmark/r
             with open(result_file, 'w') as f:
                 json.dump({
                     'config': {
-                        'n_items': config.n_items,
-                        'instance_type': config.instance_type,
-                        'instance_seed': config.seed,
-                        'budget': config.budget,
-                        'dp_optimal': dp_optimal_value
+                        'n_items': int(config.n_items),
+                        'instance_type': str(config.instance_type),
+                        'instance_seed': int(config.seed),
+                        'budget': int(config.budget),
+                        'dp_optimal': float(dp_optimal_value) if dp_optimal_value is not None else None
                     },
                     'results': results
                 }, f, indent=2)

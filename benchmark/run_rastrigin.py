@@ -10,6 +10,8 @@ import numpy as np
 import json
 import time
 from pathlib import Path
+import multiprocessing as mp
+from functools import partial
 
 from src.problems.continuous.rastrigin import RastriginProblem
 from src.swarm.fa import FireflyContinuousOptimizer
@@ -38,8 +40,50 @@ def run_single_experiment(algorithm_name, optimizer, max_iter, seed, problem):
     }
 
 
-def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchmark/results/rastrigin'):
-    """Run Rastrigin benchmark for all algorithms."""
+def run_single_experiment(algo_name, problem, params, seed, max_iter):
+    """Run single experiment (for parallel execution)."""
+    import time
+    from src.swarm.fa import FireflyContinuousOptimizer
+    from src.classical.simulated_annealing import SimulatedAnnealingOptimizer
+    from src.classical.hill_climbing import HillClimbingOptimizer
+    from src.classical.genetic_algorithm import GeneticAlgorithmOptimizer
+    
+    algo_map = {
+        'FA': FireflyContinuousOptimizer,
+        'SA': SimulatedAnnealingOptimizer,
+        'HC': HillClimbingOptimizer,
+        'GA': GeneticAlgorithmOptimizer
+    }
+    
+    optimizer = algo_map[algo_name](problem=problem, seed=seed, **params)
+    
+    start_time = time.time()
+    _, best_fitness, history, _ = optimizer.run(max_iter=max_iter)
+    elapsed = time.time() - start_time
+    
+    return {
+        'algorithm': algo_name,
+        'seed': seed,
+        'best_fitness': best_fitness,
+        'history': history,
+        'elapsed_time': elapsed,
+        'evaluations': len(history) * (params.get('n_fireflies', 1) or params.get('pop_size', 1))
+    }
+
+
+def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchmark/results/rastrigin', n_jobs=None):
+    """
+    Run Rastrigin benchmark with parallel execution.
+    
+    Parameters
+    ----------
+    config_name : str
+        Configuration name from config.py
+    output_dir : str
+        Output directory
+    n_jobs : int, optional
+        Number of parallel jobs. If None, uses CPU count - 1
+    """
     config = RASTRIGIN_CONFIGS[config_name]
     output_path = Path(output_dir) / config_name
     output_path.mkdir(parents=True, exist_ok=True)
@@ -55,53 +99,35 @@ def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchma
     
     problem = RastriginProblem(dim=config.dim)
     
-    algorithms = {
-        'FA': lambda seed: FireflyContinuousOptimizer(
-            problem=problem,
-            n_fireflies=config.fa_params['n_fireflies'],
-            alpha=config.fa_params['alpha'],
-            beta0=config.fa_params['beta0'],
-            gamma=config.fa_params['gamma'],
-            seed=seed
-        ),
-        'SA': lambda seed: SimulatedAnnealingOptimizer(
-            problem=problem,
-            initial_temp=config.sa_params['initial_temp'],
-            cooling_rate=config.sa_params['cooling_rate'],
-            step_size=config.sa_params['step_size'],
-            seed=seed
-        ),
-        'HC': lambda seed: HillClimbingOptimizer(
-            problem=problem,
-            step_size=config.hc_params['step_size'],
-            num_neighbors=config.hc_params['num_neighbors'],
-            seed=seed
-        ),
-        'GA': lambda seed: GeneticAlgorithmOptimizer(
-            problem=problem,
-            pop_size=config.ga_params['pop_size'],
-            crossover_rate=config.ga_params['crossover_rate'],
-            mutation_rate=config.ga_params['mutation_rate'],
-            tournament_size=config.ga_params['tournament_size'],
-            elitism=config.ga_params['elitism'],
-            seed=seed
-        )
+    # Extract algorithm parameters
+    algo_params = {
+        'FA': config.fa_params,
+        'SA': config.sa_params,
+        'HC': config.hc_params,
+        'GA': config.ga_params
     }
     
-    for algo_name, algo_factory in algorithms.items():
-        print(f"\n{'-' * 70}")
-        print(f"Running {algo_name}...")
-        print(f"{'-' * 70}")
+    seeds = config.seeds
+    n_runs = len(seeds)
+    
+    if n_jobs is None:
+        n_jobs = max(1, mp.cpu_count() - 1)
+    
+    print(f"Using {n_jobs} parallel workers")
+    
+    # Run experiments for each algorithm IN PARALLEL
+    for algo_name in algo_params:
+        print(f"\nRunning {algo_name} ({n_runs} runs in parallel)...")
         
-        results = []
+        # Prepare arguments for parallel execution
+        args_list = [
+            (algo_name, problem, algo_params[algo_name], seed, config.max_iter)
+            for seed in seeds
+        ]
         
-        for i, seed in enumerate(config.seeds):
-            optimizer = algo_factory(seed)
-            result = run_single_experiment(algo_name, optimizer, config.max_iter, seed, problem)
-            results.append(result)
-            
-            if (i + 1) % 10 == 0:
-                print(f"  Completed {i + 1}/{len(config.seeds)} runs")
+        # Run in parallel
+        with mp.Pool(processes=n_jobs) as pool:
+            results = pool.starmap(run_single_experiment, args_list)
         
         # Save individual results
         result_file = output_path / f"{algo_name}_results.json"
@@ -117,6 +143,28 @@ def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchma
         print(f"    Worst: {np.max(best_fits):.4f}")
         print(f"    Success rate: {np.mean([f < config.threshold for f in best_fits]):.2%}")
         print(f"    Avg time: {np.mean([r['elapsed_time'] for r in results]):.2f}s")
+    
+    print(f"\n{'=' * 70}")
+    print(f"Benchmark complete! Results saved to: {output_path}")
+    print(f"{'=' * 70}")
+
+
+if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Run Rastrigin benchmark')
+    parser.add_argument('--config', type=str, default='quick_convergence',
+                        choices=['quick_convergence', 'multimodal_escape', 'scalability'],
+                        help='Benchmark configuration')
+    parser.add_argument('--output', type=str, default='benchmark/results/rastrigin',
+                        help='Output directory')
+    
+    args = parser.parse_args()
+    
+    run_rastrigin_benchmark(config_name=args.config, output_dir=args.output)
+    print(f"    Worst: {np.max(best_fits):.4f}")
+    print(f"    Success rate: {np.mean([f < config.threshold for f in best_fits]):.2%}")
+    print(f"    Avg time: {np.mean([r['elapsed_time'] for r in results]):.2f}s")
     
     print(f"\n{'=' * 70}")
     print(f"Benchmark complete! Results saved to: {output_path}")

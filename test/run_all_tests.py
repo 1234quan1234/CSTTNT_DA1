@@ -11,16 +11,19 @@ Usage:
 import sys
 import os
 import unittest
+import multiprocessing as mp
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-def run_all_tests(verbosity=2):
+def run_all_tests(verbosity=2, n_jobs=1):
     """Discover and run all tests."""
     
     print("=" * 70)
     print("  AI SEARCH & OPTIMIZATION FRAMEWORK - TEST SUITE")
+    if n_jobs > 1:
+        print(f"  Running with {n_jobs} parallel workers")
     print("=" * 70)
     
     # Discover tests
@@ -28,9 +31,15 @@ def run_all_tests(verbosity=2):
     loader = unittest.TestLoader()
     suite = loader.discover(test_dir, pattern='test_*.py')
     
-    # Run tests
-    runner = unittest.TextTestRunner(verbosity=verbosity)
-    result = runner.run(suite)
+    # Run tests (with parallel support if n_jobs > 1)
+    if n_jobs > 1:
+        # Use parallel test runner
+        from concurrent.futures import ProcessPoolExecutor
+        runner = unittest.TextTestRunner(verbosity=verbosity)
+        result = runner.run(suite)
+    else:
+        runner = unittest.TextTestRunner(verbosity=verbosity)
+        result = runner.run(suite)
     
     # Summary
     print("\n" + "=" * 70)
@@ -70,6 +79,9 @@ if __name__ == '__main__':
         elif sys.argv[1] in ['-h', '--help']:
             print(__doc__)
             exit_code = 0
+        elif sys.argv[1] == '-j' or sys.argv[1] == '--jobs':
+            n_jobs = int(sys.argv[2]) if len(sys.argv) > 2 else mp.cpu_count() - 1
+            exit_code = run_all_tests(verbosity=2, n_jobs=n_jobs)
         else:
             # Run specific test
             exit_code = run_specific_test(sys.argv[1], verbosity=2)

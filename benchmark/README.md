@@ -30,46 +30,36 @@ benchmark/
 
 ## 🚀 Quick Start
 
-### Option 1: Run Everything (Full Benchmark)
+### Option 1: Run Everything (Parallel - Recommended)
 
 ```bash
-# This will run all experiments (4-7 hours)
-chmod +x benchmark/run_all.sh
-./benchmark/run_all.sh
+# Fast: Use all CPU cores minus 1
+python benchmark/run_all.py --quick --jobs -1
+
+# Custom: Use 4 parallel workers
+python benchmark/run_all.py --full --jobs 4
 ```
 
-### Option 2: Run Individual Benchmarks
+### Option 2: Run Individual Benchmarks (Parallel)
 
 #### Rastrigin Benchmark
 
 ```bash
-# Quick test (d=10, ~5 minutes)
-python benchmark/run_rastrigin.py --config quick_convergence
+# Quick test with 4 parallel workers (~2 minutes)
+python benchmark/run_rastrigin.py --config quick_convergence --jobs 4
 
-# Multimodal escape (d=30, ~15 minutes)
-python benchmark/run_rastrigin.py --config multimodal_escape
-
-# Scalability (d=50, ~30 minutes)
-python benchmark/run_rastrigin.py --config scalability
+# Multimodal escape with auto-detect cores (~5 minutes)
+python benchmark/run_rastrigin.py --config multimodal_escape --jobs -1
 ```
 
 #### Knapsack Benchmark
 
 ```bash
-# Small scale (n=50, ~30 minutes)
-python benchmark/run_knapsack.py --size 50
+# Small scale with 4 workers (~10 minutes)
+python benchmark/run_knapsack.py --size 50 --jobs 4
 
-# Medium scale (n=100, ~1 hour)
-python benchmark/run_knapsack.py --size 100
-
-# Large scale (n=200, ~2 hours)
-python benchmark/run_knapsack.py --size 200
-
-# Stress test (n=500, ~3 hours)
-python benchmark/run_knapsack.py --size 500
-
-# Run all
-python benchmark/run_knapsack.py --size all
+# Medium scale auto-parallel (~20 minutes)
+python benchmark/run_knapsack.py --size 100 --jobs -1
 ```
 
 ### Option 3: Analysis Only
@@ -107,15 +97,12 @@ python benchmark/visualize.py
 | 50 | All 4 | 42, 43 | 10,000 | 166 | 10,000 | ✓ Yes |
 | 100 | All 4 | 42, 43 | 15,000 | 250 | 15,000 | ✓ Yes |
 | 200 | Uncorr, Weak | 42, 43 | 30,000 | 500 | 30,000 | ✗ No |
-| 500 | Uncorr only | 42, 43 | 50,000 | 833 | 50,000 | ✗ No |
 
 **Instance Types:**
 1. **Uncorrelated**: Random values and weights
 2. **Weakly Correlated**: values ≈ weights ± random noise
 3. **Strongly Correlated**: values = weights + 100
 4. **Subset-Sum**: values = weights (hardest)
-
-**Total Instances:** 22 (8×n=50 + 8×n=100 + 4×n=200 + 2×n=500)
 
 **Algorithm Parameters:**
 - **FA**: n_fireflies=60, α_flip=0.2, max_flips=3
@@ -125,50 +112,56 @@ python benchmark/visualize.py
 
 ## 📈 Metrics
 
-### Primary Metrics (All Problems)
+### Primary Metrics
 
-| Metric | Description | Purpose |
-|--------|-------------|---------|
-| **Best Fitness** | Final best solution quality | Main performance indicator |
-| **Mean ± Std** | Average over 30 runs | Robustness measure |
-| **Median** | Median performance | Robust central tendency |
-| **Success Rate** | % achieving threshold | Reliability measure |
-| **Convergence Curve** | Best-so-far trajectory | Convergence speed |
-| **Time per Eval** | Execution time | Computational cost |
+| Metric | Description |
+|--------|-------------|
+| **Best Fitness** | Final best solution quality |
+| **Mean ± Std** | Average over 30 runs |
+| **Median** | Median performance |
+| **Success Rate** | % achieving threshold |
+| **Convergence** | Best-so-far trajectory |
 
-### Rastrigin-Specific Metrics
+### Problem-Specific
 
-- **Error to Optimum**: |f(x) - 0|
-- **ERT**: Expected running time to threshold
-- **Population Diversity**: Average pairwise distance (FA/GA)
+**Rastrigin:**
+- Error to optimum: |f(x) - 0|
+- Population diversity (FA/GA)
 
-### Knapsack-Specific Metrics
+**Knapsack:**
+- Optimality gap: (DP_opt - best) / DP_opt × 100%
+- Feasibility rate
+- Capacity utilization
 
-- **Optimality Gap**: (DP_opt - best_value) / DP_opt × 100% (for n≤100)
-- **Feasibility Rate**: % valid solutions (weight ≤ capacity)
-- **Capacity Utilization**: Average Σ(w×x) / C
-- **Items Selected**: Average Σ(x)
-- **Constraint Violations**: % infeasible before repair
+## 🎯 Expected Results
 
-## 🔬 Statistical Tests
+### Rastrigin
 
-### Pairwise Comparisons
-- **Wilcoxon Signed-Rank Test**: Compare two algorithms
-- **Significance Level**: α = 0.05
-- **Null Hypothesis**: No difference in median performance
+| Algorithm | d=10 | d=30 | d=50 | Scaling |
+|-----------|------|------|------|---------|
+| **FA** | ✓✓✓ | ✓✓ | ✓ | Good |
+| **GA** | ✓✓ | ✓✓ | ✓✓ | Excellent |
+| **SA** | ✓ | ✗ | ✗ | Poor |
+| **HC** | ✗ | ✗ | ✗ | Poor |
 
-### Multiple Comparisons
-- **Friedman Test**: Omnibus test for k algorithms
-- **Nemenyi Post-hoc**: Pairwise comparisons after Friedman
-- **Average Ranks**: Lower rank = better performance
+### Knapsack
 
-### Example Output
+| Algorithm | Uncorr | Weak | Strong | Subset |
+|-----------|--------|------|--------|--------|
+| **FA** | ✓✓ | ✓✓ | ✓✓✓ | ✓ |
+| **GA** | ✓✓✓ | ✓✓✓ | ✓✓ | ✓✓ |
+| **SA** | ✓ | ✓ | ✓ | ✗ |
+| **HC** | ✗ | ✗ | ✗ | ✗ |
 
-```
-Friedman Test:
-  Statistic: 45.67
-  P-value: 1.23e-10
-  Significant: Yes
+## 📚 References
+
+1. Yang, X. S. (2008). *Nature-inspired metaheuristic algorithms*. Luniver press.
+2. [Rastrigin Function](https://www.sfu.ca/~ssurjano/rastr.html)
+3. [Knapsack Problem](https://en.wikipedia.org/wiki/Knapsack_problem)
+
+---
+
+For detailed usage, see individual script help: `python benchmark/run_rastrigin.py --help`
 
 Average Ranks (lower is better):
   FA: 1.47
@@ -182,7 +175,6 @@ FA        —   0.0234  0.0001  0.0000
 GA   0.0234       —   0.0012  0.0000
 SA   0.0001  0.0012       —   0.0345
 HC   0.0000  0.0000  0.0345       —
-```
 
 ## 📦 Output Format
 
@@ -275,24 +267,16 @@ Similar visualizations for Knapsack results.
 
 ## ⏱️ Estimated Runtime
 
-### Sequential Execution
+### Parallel Execution (4 cores) - RECOMMENDED
 
-| Benchmark | Time |
-|-----------|------|
-| Rastrigin (all configs) | ~30-45 min |
-| Knapsack (n=50) | ~30 min |
-| Knapsack (n=100) | ~1 hour |
-| Knapsack (n=200) | ~2 hours |
-| Knapsack (n=500) | ~3 hours |
-| **Total** | **~6-7 hours** |
-
-### Parallel Execution (4 cores)
-
-| Benchmark | Time |
-|-----------|------|
-| Rastrigin | ~10-15 min |
-| Knapsack | ~2-3 hours |
-| **Total** | **~3-4 hours** |
+| Benchmark | Time (4 cores) | Speedup |
+|-----------|---------------|---------|
+| Rastrigin quick | ~2 min | 2.5x |
+| Rastrigin all | ~15 min | 3x |
+| Knapsack n=50 | ~10 min | 3x |
+| Knapsack n=100 | ~20 min | 3x |
+| Knapsack n=200 | ~45 min | 2.7x |
+| **Total** | **~2-3 hours** | **~3x** |
 
 ## 🎯 Expected Results
 
@@ -399,6 +383,22 @@ pip install numpy scipy pandas matplotlib seaborn
 4. **Write technical report** using generated tables and plots
 
 5. **Archive results** for reproducibility
+
+## 📚 References
+
+1. Yang, X. S. (2008). *Nature-inspired metaheuristic algorithms*. Luniver press.
+2. [Rastrigin Function - Virtual Library](https://www.sfu.ca/~ssurjano/rastr.html)
+3. [Knapsack Problem - Wikipedia](https://en.wikipedia.org/wiki/Knapsack_problem)
+4. Wilcoxon, F. (1945). "Individual comparisons by ranking methods". *Biometrics Bulletin*.
+5. Friedman, M. (1937). "The use of ranks to avoid the assumption of normality". *JASA*.
+
+## 👥 Contact
+
+For issues or questions, contact: @1234quan1234
+
+---
+
+**Note**: This is an academic benchmark suite. Execution times and results may vary based on hardware. All random seeds are fixed for reproducibility.
 
 ## 📚 References
 

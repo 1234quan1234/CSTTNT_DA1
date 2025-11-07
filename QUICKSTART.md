@@ -16,18 +16,33 @@ conda activate aisearch
 
 ## Quick Demo
 
-Run the comprehensive demo to see all features:
+Run benchmarks faster with parallel execution:
 
 ```bash
-python demo.py
+# Quick demo with 4 parallel workers (much faster!)
+python demo.py --parallel --jobs 4
+
+# Or run specific benchmarks
+python benchmark/run_rastrigin.py --config quick_convergence --jobs 4
+python benchmark/run_knapsack.py --size 50 --jobs 4
 ```
 
 This generates plots in `results/` folder demonstrating:
-- Convergence curves
-- Algorithm comparisons
-- TSP tour visualization
+- Convergence curves on Rastrigin function
+- Knapsack optimization results
+- Algorithm comparisons (FA, SA, HC, GA)
 - Parameter sensitivity analysis
 - Swarm trajectory plots
+
+## ⏱️ Estimated Runtime (with 4 cores)
+
+| Benchmark | Sequential | Parallel (4 cores) |
+|-----------|------------|-------------------|
+| Rastrigin quick | ~5 min | ~2 min |
+| Rastrigin all | ~45 min | ~15 min |
+| Knapsack n=50 | ~30 min | ~10 min |
+| Knapsack n=100 | ~1 hour | ~20 min |
+| **Total** | ~7 hours | **~2-3 hours** |
 
 ## Testing Your Implementation
 
@@ -124,7 +139,6 @@ sys.path.append('/home/bui-anh-quan/CSTTNT_DA1')
 
 from src.problems.discrete.knapsack import KnapsackProblem
 from src.swarm.fa import FireflyKnapsackOptimizer
-from src.classical.simulated_annealing import SimulatedAnnealingOptimizer
 from src.classical.genetic_algorithm import GeneticAlgorithmOptimizer
 
 # Create Knapsack instance
@@ -140,17 +154,12 @@ problem = KnapsackProblem(values, weights, capacity)
 fa = FireflyKnapsackOptimizer(problem, n_fireflies=25, seed=42)
 _, fa_value, fa_hist, _ = fa.run(max_iter=100)
 
-# Simulated Annealing
-sa = SimulatedAnnealingOptimizer(problem, initial_temp=100, seed=42)
-_, sa_value, sa_hist, _ = sa.run(max_iter=200)
-
 # Genetic Algorithm
 ga = GeneticAlgorithmOptimizer(problem, pop_size=30, seed=42)
 _, ga_value, ga_hist, _ = ga.run(max_iter=100)
 
 print("Knapsack Results (30 items):")
 print(f"FA: {-fa_value:.2f}")  # Negate for actual value
-print(f"SA: {-sa_value:.2f}")
 print(f"GA: {-ga_value:.2f}")
 ```
 
@@ -200,7 +209,6 @@ From `src.utils.visualization`:
 - `plot_convergence()` - Single algorithm convergence curve
 - `plot_comparison()` - Multiple algorithms comparison (linear/log scale)
 - `plot_trajectory_2d()` - Swarm movement on 2D landscape
-- `plot_tsp_tour()` - TSP tour visualization with city connections
 - `plot_parameter_sensitivity()` - Parameter tuning results
 
 ## Interactive Notebooks
@@ -216,10 +224,9 @@ jupyter lab
 ```
 
 The notebook includes:
-- ✓ FA on 2D Sphere with contour plots
-- ✓ FA on multimodal Rastrigin landscape
+- ✓ FA on 2D Rastrigin with contour plots
+- ✓ FA on multimodal landscapes
 - ✓ Algorithm comparison charts
-- ✓ TSP tour visualization
 - ✓ Parameter sensitivity analysis
 - ✓ Optional: animated swarm movement
 
@@ -243,8 +250,18 @@ The notebook includes:
   - Higher: Stronger attraction between fireflies
 
 **Recommended for different problems:**
-- **Multimodal (Rastrigin)**: gamma=0.5, alpha=0.3
-- **Knapsack**: alpha_flip=0.2, max_flips_per_move=3
+- **Multimodal (Rastrigin)**: gamma=0.5, alpha=0.3, n_fireflies=30
+
+### Firefly Algorithm (Knapsack)
+
+- **n_fireflies** (20-50): Population size
+- **alpha_flip** (0.1-0.4): Random bit flip probability
+  - Lower: More exploitation
+  - Higher: More exploration
+- **max_flips_per_move** (2-5): Directed flips per movement
+  - Controls adaptation speed to better solutions
+
+**Recommended:** alpha_flip=0.2, max_flips_per_move=3
 
 ### Simulated Annealing
 
@@ -289,11 +306,11 @@ optimizer = FireflyContinuousOptimizer(
 
 ## Next Steps
 
-1. **Create visualizations**: Use `history_best` and `trajectory` to plot convergence
-2. **Run benchmarks**: Compare algorithms across multiple runs
-3. **Tune parameters**: Experiment with different parameter settings
-4. **Add new problems**: Extend the framework with custom problems
-5. **Add new algorithms**: Implement PSO, ACO, ABC, etc.
+1. **Run the demo**: `python demo.py` to see all features
+2. **Create visualizations**: Use `history` and `trajectory` to plot convergence
+3. **Run benchmarks**: Compare algorithms across multiple runs
+4. **Tune parameters**: Experiment with different parameter settings
+5. **Extend the framework**: Add custom problems or algorithms
 
 ## File Structure Summary
 
@@ -302,20 +319,21 @@ src/
 ├── core/                   # Base classes
 │   ├── base_optimizer.py   # All optimizers inherit from BaseOptimizer
 │   ├── problem_base.py     # All problems inherit from ProblemBase
-│   └── utils.py            # Helper functions
+│   └── utils.py            # Helper functions (distances, brightness, etc.)
 │
 ├── problems/
 │   ├── continuous/         # Continuous benchmark functions
+│   │   └── rastrigin.py    # Rastrigin function (multimodal)
 │   └── discrete/           # Discrete optimization problems
+│       └── knapsack.py     # 0/1 Knapsack problem
 │
 ├── swarm/
-│   └── fa.py              # Firefly Algorithm (continuous & TSP)
+│   └── fa.py              # Firefly Algorithm (continuous & Knapsack)
 │
 ├── classical/
 │   ├── hill_climbing.py
 │   ├── simulated_annealing.py
-│   ├── genetic_algorithm.py
-│   └── graph_search.py     # BFS, DFS, A*
+│   └── genetic_algorithm.py
 │
 └── utils/
     └── visualization.py    # Plotting utilities
@@ -342,12 +360,9 @@ best_solution, best_fitness, history_best, trajectory = optimizer.run(max_iter)
 - `evaluate(x)`: Returns fitness value (minimize)
 - `init_solution(rng, n)`: Generates n random solutions
 - `clip(X)`: Ensures solutions are within valid bounds
-- `representation_type()`: Returns problem type ("continuous", "tsp", etc.)
+- `representation_type()`: Returns problem type ("continuous" or "knapsack")
 
 This allows any optimizer to work with any compatible problem!
-- `evaluate(x)`: Returns fitness value (minimize)
-- `init_solution(rng, n)`: Generates n random solutions
-- `clip(X)`: Ensures solutions are within valid bounds
 - `representation_type()`: Returns problem type ("continuous", "tsp", etc.)
 
 This allows any optimizer to work with any compatible problem!

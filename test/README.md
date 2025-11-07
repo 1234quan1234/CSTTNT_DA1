@@ -64,8 +64,8 @@ python -m unittest test.test_continuous_problems.TestSphereProblem.test_optimum_
 - ✓ Output format validation
 - ✓ Convergence behavior
 - ✓ Deterministic results with seed
-- ✓ Discrete TSP optimizer
-- ✓ Valid tour generation
+- ✓ Discrete Knapsack optimizer
+- ✓ Valid solution generation
 
 ### Classical Algorithms (`test_classical_algorithms.py`)
 - ✓ Hill Climbing functionality
@@ -86,11 +86,9 @@ ls -la results/
 ```
 
 Expected output files:
-- `fa_sphere_convergence.png`
 - `fa_rastrigin_convergence.png`
 - `fa_rastrigin_trajectory.png`
-- `tsp_tour.png`
-- `tsp_convergence.png`
+- `fa_knapsack_convergence.png`
 - `algorithm_comparison.png`
 - `algorithm_comparison_log.png`
 - `parameter_sensitivity_gamma.png`
@@ -154,5 +152,4 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 ```
 
-**Failed tests**: Check the error message and traceback for details. Ensure all source files are present and correct.
 **Failed tests**: Check the error message and traceback for details. Ensure all source files are present and correct.

@@ -4,7 +4,7 @@ A comprehensive Python framework for comparing **Firefly Algorithm** (FA) with c
 
 ## 🎯 Project Overview
 
-This project implements and benchmarks multiple optimization algorithms on two main problems:
+This project implements and benchmarks multiple optimization algorithms:
 
 ### Swarm Intelligence
 - **Firefly Algorithm (FA)** - Continuous optimization
@@ -18,7 +18,7 @@ This project implements and benchmarks multiple optimization algorithms on two m
 ### Benchmark Problems
 
 #### Continuous Functions
-- **Rastrigin** - Highly multimodal with many local minima (main test function)
+- **Rastrigin** - Highly multimodal with many local minima
 
 #### Discrete Problems
 - **0/1 Knapsack** - Maximize value within capacity constraint
@@ -40,7 +40,7 @@ CSTTNT_DA1/
 │   │       └── knapsack.py        # 0/1 Knapsack problem
 │   │
 │   ├── swarm/                     # Swarm intelligence algorithms
-│   │   └── fa.py                  # Firefly Algorithm (continuous & discrete)
+│   │   └── fa.py                  # Firefly Algorithm (continuous & Knapsack)
 │   │
 │   ├── classical/                 # Classical baseline algorithms
 │   │   ├── hill_climbing.py
@@ -60,6 +60,14 @@ CSTTNT_DA1/
 │
 ├── notebooks/                     # Jupyter notebooks
 │   └── fa_visualization.ipynb     # Interactive visualization demos
+│
+├── benchmark/                     # Benchmark suite
+│   ├── config.py
+│   ├── run_rastrigin.py
+│   ├── run_knapsack.py
+│   ├── analyze_results.py
+│   ├── visualize.py
+│   └── README.md
 │
 ├── results/                       # Output directory (auto-created)
 │   ├── *.png                      # Generated plots
@@ -101,16 +109,23 @@ pip install -r requirements.txt
 
 ### Quick Test
 
-Run the comprehensive demo script:
+Run benchmarks with parallel execution (faster):
 
 ```bash
-python demo.py
+# Use all available CPU cores
+python benchmark/run_rastrigin.py --config quick_convergence --jobs -1
+
+# Use 4 parallel workers
+python benchmark/run_rastrigin.py --config quick_convergence --jobs 4
+
+# Run all benchmarks in parallel
+python benchmark/run_all.py --quick --jobs 4
 ```
 
 This will:
 - Run FA on Rastrigin function (continuous multimodal)
 - Run FA on Knapsack problem (discrete)
-- Compare FA with SA, HC, and GA on both problems
+- Compare FA with SA, HC, and GA
 - Perform parameter sensitivity analysis
 - Generate visualization plots in `results/` folder
 
@@ -126,46 +141,6 @@ python src/problems/discrete/knapsack.py
 
 # Run all unit tests
 python test/run_all_tests.py
-```
-
-## Running Benchmarks
-
-### Quick Test
-```bash
-# Test all benchmarks quickly
-python benchmark/test_benchmarks.py --quick
-
-# Run quick benchmark suite
-python benchmark/run_all.py --quick
-```
-
-### Full Benchmark Suite
-```bash
-# Run all benchmarks with all configurations
-python benchmark/run_all.py --full
-
-# Run specific problem benchmark
-python benchmark/run_rastrigin.py --config quick_convergence
-python benchmark/run_tsp.py --config small
-python benchmark/run_knapsack.py --config medium
-```
-
-### Analyze Results
-```bash
-# Analyze all results
-python benchmark/analyze_results.py
-
-# Analyze specific benchmark
-python benchmark/analyze_results.py --problem rastrigin --config quick_convergence
-```
-
-### Using pytest
-```bash
-# Run all tests
-pytest benchmark/test_benchmarks.py -v
-
-# Run specific test class
-pytest benchmark/test_benchmarks.py::TestRastriginBenchmark -v
 ```
 
 ## 💡 Usage Examples
@@ -261,10 +236,10 @@ _, hc_fit, hc_hist, _ = hc.run(max_iter=100)
 ga = GeneticAlgorithmOptimizer(problem, pop_size=20, seed=42)
 _, ga_fit, ga_hist, _ = ga.run(max_iter=100)
 
-print(f"FA best: {fa_fit:.6f}")
-print(f"SA best: {sa_fit:.6f}")
-print(f"HC best: {hc_fit:.6f}")
-print(f"GA best: {ga_fit:.6f}")
+print(f"FA: {fa_fit:.6f}")
+print(f"SA: {sa_fit:.6f}")
+print(f"HC: {hc_fit:.6f}")
+print(f"GA: {ga_fit:.6f}")
 ```
 
 ## 📊 Return Format
@@ -277,83 +252,48 @@ best_solution, best_fitness, history_best, trajectory = optimizer.run(max_iter)
 
 **Returns:**
 - `best_solution` (np.ndarray): Best solution found
-  - Rastrigin: shape (dim,) - real values in [-5.12, 5.12]
+  - Continuous: shape (dim,) - real values
   - Knapsack: shape (n_items,) - binary 0/1 array
 - `best_fitness` (float): Best objective value (minimization)
 - `history_best` (List[float]): Best fitness value at each iteration
-- `trajectory` (List): Population/solution snapshots at each iteration
-  - For population methods (FA, GA): List of population arrays
-  - For single-solution methods (HC, SA): List of solution arrays
+- `trajectory` (List[np.ndarray]): Population/solution snapshots
 
 **Reproducibility:**
-All algorithms accept a `seed` parameter (int or None) for reproducible results.
-
-```python
-# Same seed = same results
-optimizer1 = FireflyContinuousOptimizer(problem, seed=42)
-optimizer2 = FireflyContinuousOptimizer(problem, seed=42)
-
-sol1, fit1, _, _ = optimizer1.run(max_iter=100)
-sol2, fit2, _, _ = optimizer2.run(max_iter=100)
-
-assert fit1 == fit2  # ✓ Guaranteed
-assert np.allclose(sol1, sol2)  # ✓ Guaranteed
-```
+All algorithms accept a `seed` parameter for reproducible results.
 
 ## 🔬 Algorithm Details
 
 ### Firefly Algorithm (Continuous)
 
-The continuous FA moves fireflies based on attractiveness and brightness:
-
+Movement equation:
 ```
 x_i = x_i + β₀·exp(-γ·r²)·(x_j - x_i) + α·(rand - 0.5)
 ```
 
-Where:
-- `β₀`: Attractiveness at distance r=0 (default: 1.0)
-- `γ`: Light absorption coefficient (default: 1.0)
-- `α`: Randomization parameter (default: 0.2)
-- `r`: Euclidean distance between fireflies i and j
+Parameters:
+- `β₀=1.0`: Attractiveness at distance r=0
+- `γ=1.0`: Light absorption coefficient
+- `α=0.2`: Randomization parameter
+- For Rastrigin: `α=0.3, γ=0.5` (more exploration)
 
-**Parameters for Rastrigin:**
-- `alpha=0.3`: Higher for multimodal exploration
-- `gamma=0.5`: Lower for global search
-- `beta0=1.0`: Standard attractiveness
+### Firefly Algorithm (Knapsack)
 
-### Firefly Algorithm (Discrete/Knapsack)
+Uses bit-flip operators instead of continuous movement:
+1. Identify differences between solutions
+2. Apply directed bit flips toward better solutions
+3. Random exploration flips (controlled by `alpha_flip`)
+4. Greedy repair for constraint violations
 
-For Knapsack, FA uses bit-flip operators:
-
-**Movement Strategy:**
-1. Compare current solution with better (brighter) solution
-2. Identify bit differences between solutions
-3. Apply directed bit flips to align with better solution
-4. Add random bit flips (controlled by `alpha_flip`) for exploration
-5. Repair infeasible solutions using greedy value/weight ratio
-
-**Parameters:**
-- `alpha_flip=0.2`: Probability of random bit flip
-- `max_flips_per_move=3`: Maximum directed flips per step
-- `repair_method="greedy_remove"`: Greedy repair for constraint violation
+Parameters:
+- `alpha_flip=0.2`: Random bit flip probability
+- `max_flips_per_move=3`: Directed flips per step
 
 ### Optimization Problems
 
-| Problem | Type | Dimension | Global Minimum | Domain |
+| Problem | Type | Dimension | Global Optimum | Domain |
 |---------|------|-----------|----------------|--------|
 | Rastrigin | Continuous | Any | f(0,...,0) = 0 | [-5.12, 5.12]^d |
-| Knapsack | Discrete | N items | Max value ≤ capacity | Binary {0,1}^N |
-
-**Rastrigin Function:**
-- Highly multimodal with many local minima
-- Tests global optimization capability
-- Formula: f(x) = 10d + Σ[x_i² - 10cos(2πx_i)]
-
-**0/1 Knapsack:**
-- NP-hard combinatorial optimization
-- Binary decision variables
-- Constraint: Σ(w_i · x_i) ≤ capacity
-- Objective: maximize Σ(v_i · x_i)
+| Knapsack | Discrete | N items | Maximize value ≤ capacity | Binary {0,1}^N |
 
 ## 🧪 Testing
 
@@ -369,8 +309,6 @@ python src/swarm/fa.py
 
 # Test classical algorithms
 python src/classical/hill_climbing.py
-python src/classical/simulated_annealing.py
-python src/classical/genetic_algorithm.py
 
 # Run all unit tests
 python test/run_all_tests.py
@@ -378,31 +316,25 @@ python test/run_all_tests.py
 
 ## 📈 Visualization
 
-The project includes comprehensive visualization utilities:
-
 ```python
-from src.utils.visualization import plot_convergence, plot_comparison, plot_trajectory_2d
+from src.utils.visualization import plot_convergence, plot_comparison
 
 # Convergence plot
-plot_convergence(history, "FA on Rastrigin", save_path="results/convergence.png")
+plot_convergence(history, "FA on Rastrigin", save_path="results/conv.png")
 
 # Algorithm comparison
 plot_comparison(
-    {"FA": fa_hist, "SA": sa_hist, "HC": hc_hist, "GA": ga_hist},
+    {"FA": fa_hist, "SA": sa_hist, "HC": hc_hist},
     "Algorithm Comparison",
     save_path="results/comparison.png"
 )
-
-# 2D trajectory (for 2D problems)
-plot_trajectory_2d(trajectory, problem, save_path="results/trajectory.png")
 ```
 
 ## 📖 References
 
 1. Yang, X. S. (2008). *Nature-inspired metaheuristic algorithms*. Luniver press.
-2. [Firefly Algorithm Overview](https://www.alpsconsult.net/post/firefly-algorithm-fa-overview)
-3. [Virtual Library of Simulation Experiments - Rastrigin Function](https://www.sfu.ca/~ssurjano/rastr.html)
-4. [0/1 Knapsack Problem](https://en.wikipedia.org/wiki/Knapsack_problem)
+2. [Rastrigin Function](https://www.sfu.ca/~ssurjano/rastr.html)
+3. [0/1 Knapsack Problem](https://en.wikipedia.org/wiki/Knapsack_problem)
 
 ## 👥 Contributors
 
@@ -411,8 +343,3 @@ plot_trajectory_2d(trajectory, problem, save_path="results/trajectory.png")
 ## 📝 License
 
 This project is for educational purposes as part of the CSTTNT course at HCMUS.
-
----
-
-**Note:** This is a research and educational project implementing classical metaheuristic algorithms.
-The implementation focuses on clarity and educational value rather than production optimization.
