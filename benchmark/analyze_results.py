@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from scipy import stats
-
+from typing import Dict, List, Tuple
 
 def load_results(result_dir, algorithm_names=None):
     """Load results from JSON files."""
@@ -181,38 +181,128 @@ def load_rastrigin_results(results_dir: str, config_name: str):
     return results
 
 
-def friedman_test(results):
-    """Perform Friedman test on results."""
-    data = [results[algo] for algo in sorted(results.keys())]
-    statistic, p_value = stats.friedmanchisquare(*data)
-    return statistic, p_value
-
-
-def wilcoxon_test(data1, data2):
-    """Perform Wilcoxon signed-rank test."""
-    statistic, p_value = stats.wilcoxon(data1, data2)
-    return statistic, p_value
-
-
-def compute_ranks(results):
-    """Compute average ranks across runs."""
-    algorithms = sorted(results.keys())
-    n_runs = len(results[algorithms[0]])
+def get_rastrigin_raw_data(results_dir: str, config_name: str) -> Dict:
+    """Extract raw per-run data for Rastrigin."""
+    config_path = Path(results_dir) / config_name
     
-    ranks = {algo: 0 for algo in algorithms}
+    if not config_path.exists():
+        return {}
     
-    for run_idx in range(n_runs):
-        run_values = [(algo, results[algo][run_idx]) for algo in algorithms]
-        run_values.sort(key=lambda x: x[1])
+    raw_data = {}
+    for algo in ['FA', 'SA', 'HC', 'GA']:
+        algo_file = config_path / f'{algo}_results.json'
+        if not algo_file.exists():
+            continue
         
-        for rank, (algo, _) in enumerate(run_values, 1):
-            ranks[algo] += rank
+        with open(algo_file, 'r') as f:
+            data = json.load(f)
+        
+        # Data is a list of runs
+        if not isinstance(data, list) or len(data) == 0:
+            continue
+        
+        raw_data[algo] = {
+            'runs': data,
+            'best_fitness': np.array([r['best_fitness'] for r in data]),
+            'error_to_optimum': np.array([abs(r['best_fitness'] - 0.0) for r in data]),
+            'histories': [r['history'] for r in data],
+            'elapsed_times': np.array([r['elapsed_time'] for r in data]),
+            'n_evals': np.array([r.get('evaluations', len(r['history'])) for r in data])
+        }
     
-    # Average ranks
-    for algo in algorithms:
-        ranks[algo] /= n_runs
+    return raw_data
+
+
+def get_knapsack_raw_data(results_dir: str, n_items: int, instance_type: str,
+                         instance_seed: int) -> Dict:
+    """Extract raw per-run data for Knapsack."""
+    results_path = Path(results_dir)
     
-    return ranks
+    # Pattern để tìm tất cả file của config này
+    pattern = f"n{n_items}_{instance_type}_seed{instance_seed}_*.json"
+    json_files = list(results_path.glob(pattern))
+    
+    if not json_files:
+        print(f"Warning: No files found matching pattern: {pattern}")
+        return {}
+    
+    raw_data = {
+        'dp_optimal': None,
+        'config': {}
+    }
+    
+    # Load từng file algorithm
+    for json_file in json_files:
+        # Parse algorithm name từ filename: n50_uncorrelated_seed42_FA.json -> FA
+        algo = json_file.stem.rsplit('_', 1)[-1]  # Lấy phần cuối sau dấu _ cuối cùng
+        
+        if algo not in ['FA', 'SA', 'HC', 'GA']:
+            continue
+        
+        try:
+            with open(json_file, 'r') as f:
+                data = json.load(f)
+            
+            # Validate structure
+            if not isinstance(data, dict):
+                print(f"Warning: Unexpected format in {json_file.name}, expected dict")
+                continue
+            
+            # Lấy config và dp_optimal từ file đầu tiên
+            if not raw_data['config']:
+                raw_data['config'] = data.get('config', {})
+                raw_data['dp_optimal'] = data.get('config', {}).get('dp_optimal', None)
+            
+            results_list = data.get('results', [])
+            
+            if not isinstance(results_list, list):
+                print(f"Warning: 'results' is not a list in {json_file.name}")
+                continue
+            
+            # Initialize algo data structure
+            raw_data[algo] = {
+                'runs': [],
+                'best_values': [],
+                'optimality_gaps': [],
+                'histories': [],
+                'feasibility': [],
+                'capacity_utilization': [],
+                'elapsed_times': [],
+                'n_evals': []
+            }
+            
+            # Process all runs for this algorithm
+            for result in results_list:
+                raw_data[algo]['runs'].append(result)
+                raw_data[algo]['best_values'].append(result['best_value'])
+                raw_data[algo]['histories'].append(result['history'])
+                raw_data[algo]['feasibility'].append(1.0 if result['is_feasible'] else 0.0)
+                raw_data[algo]['capacity_utilization'].append(result.get('capacity_utilization', 0.0))
+                raw_data[algo]['elapsed_times'].append(result['elapsed_time'])
+                raw_data[algo]['n_evals'].append(len(result['history']))
+                
+                # Calculate optimality gap only for feasible solutions
+                if raw_data['dp_optimal'] is not None and result['is_feasible']:
+                    gap = (raw_data['dp_optimal'] - result['best_value']) / raw_data['dp_optimal'] * 100
+                    raw_data[algo]['optimality_gaps'].append(gap)
+            
+            # Convert lists to numpy arrays
+            raw_data[algo]['best_values'] = np.array(raw_data[algo]['best_values'])
+            raw_data[algo]['feasibility'] = np.array(raw_data[algo]['feasibility'])
+            raw_data[algo]['capacity_utilization'] = np.array(raw_data[algo]['capacity_utilization'])
+            raw_data[algo]['elapsed_times'] = np.array(raw_data[algo]['elapsed_times'])
+            raw_data[algo]['n_evals'] = np.array(raw_data[algo]['n_evals'])
+            
+            if raw_data[algo]['optimality_gaps']:
+                raw_data[algo]['optimality_gaps'] = np.array(raw_data[algo]['optimality_gaps'])
+            else:
+                raw_data[algo]['optimality_gaps'] = np.array([])
+                
+        except Exception as e:
+            print(f"Warning: Error loading {json_file.name}: {e}")
+            continue
+    
+    return raw_datac
 
 
 def generate_rastrigin_summary(results_dir: str, output_file: str):
@@ -223,17 +313,25 @@ def generate_rastrigin_summary(results_dir: str, output_file: str):
     
     for config_name in configs:
         try:
-            results = load_rastrigin_results(results_dir, config_name)
+            raw_data = get_rastrigin_raw_data(results_dir, config_name)
             
-            for algo, fitness_values in results.items():
+            for algo, data in raw_data.items():
+                errors = data['error_to_optimum']
+                evals = data['n_evals']
+                times = data['elapsed_times']
+                
                 summary_data.append({
                     'Configuration': config_name,
                     'Algorithm': algo,
-                    'Mean': np.mean(fitness_values),
-                    'Std': np.std(fitness_values),
-                    'Min': np.min(fitness_values),
-                    'Max': np.max(fitness_values),
-                    'Median': np.median(fitness_values)
+                    'Mean': np.mean(errors),
+                    'Std': np.std(errors),
+                    'Median': np.median(errors),
+                    'Best': np.min(errors),
+                    'Worst': np.max(errors),
+                    'Q1': np.percentile(errors, 25),
+                    'Q3': np.percentile(errors, 75),
+                    'Mean_Evals': np.mean(evals),
+                    'Mean_Time': np.mean(times)
                 })
         except FileNotFoundError:
             print(f"Warning: Results not found for configuration '{config_name}'")
@@ -266,74 +364,97 @@ def generate_knapsack_summary(results_dir: str, output_file: str):
         return None
     
     # Find all JSON result files
-    json_files = list(results_path.glob('*.json'))
+    json_files = list(results_path.glob('n*_*.json'))
     
     if not json_files:
         print(f"Warning: No JSON files found in {results_dir}")
         return None
     
+    # Group files by configuration (n_items, instance_type, seed)
+    configs = {}
     for json_file in json_files:
         # Parse filename: n50_uncorrelated_seed42_FA.json
         filename = json_file.stem
-        parts = filename.split('_')
-        
-        if len(parts) < 4:
-            print(f"Warning: Skipping file with unexpected format: {filename}")
-            continue
         
         try:
-            n_items = int(parts[0][1:])  # Remove 'n' prefix
-            instance_type = parts[1]
-            seed = int(parts[2].replace('seed', ''))
-            algo_name = parts[3]
-        except (ValueError, IndexError) as e:
+            # Remove algorithm suffix
+            parts = filename.rsplit('_', 1)  # Split from right
+            config_part = parts[0]  # n50_uncorrelated_seed42
+            algo = parts[1]  # FA, GA, HC, SA
+            
+            # Parse config: n50_uncorrelated_seed42
+            config_parts = config_part.split('_')
+            n_items = int(config_parts[0][1:])  # n50 -> 50
+            
+            # Find seed (last part starting with 'seed')
+            seed_idx = next(i for i, p in enumerate(config_parts) if p.startswith('seed'))
+            seed = int(config_parts[seed_idx].replace('seed', ''))
+            
+            # Instance type is everything between n_items and seed
+            instance_type = '_'.join(config_parts[1:seed_idx])
+            
+            config_key = (n_items, instance_type, seed)
+            if config_key not in configs:
+                configs[config_key] = {}
+            configs[config_key][algo] = json_file
+            
+        except (ValueError, IndexError, StopIteration) as e:
             print(f"Warning: Could not parse filename {filename}: {e}")
             continue
+    
+    # Process each configuration
+    for (n_items, instance_type, seed), algo_files in configs.items():
+        # Load one file to get config and dp_optimal
+        first_file = next(iter(algo_files.values()))
         
-        # Load results
-        with open(json_file, 'r') as f:
-            data = json.load(f)
+        with open(first_file, 'r') as f:
+            first_data = json.load(f)
         
-        # Check if data has 'results' key (new format) or is a list (old format)
-        if isinstance(data, dict) and 'results' in data:
-            results = data['results']
-            config = data.get('config', {})
-            dp_optimal = config.get('dp_optimal', None)
-        elif isinstance(data, list):
-            results = data
-            dp_optimal = None
-        else:
-            print(f"Warning: Unexpected data format in {json_file}")
-            continue
+        dp_optimal = first_data.get('dp_optimal')
         
-        # Extract metrics
-        best_values = [r['best_value'] for r in results]
-        times = [r['elapsed_time'] for r in results]
-        feasible = [r.get('is_feasible', True) for r in results]
-        
-        row = {
-            'n_items': n_items,
-            'type': instance_type,
-            'seed': seed,
-            'Algorithm': algo_name,
-            'Mean_Value': np.mean(best_values),
-            'Std_Value': np.std(best_values),
-            'Max_Value': np.max(best_values),
-            'Min_Value': np.min(best_values),
-            'Median_Value': np.median(best_values),
-            'Feasibility_%': np.mean(feasible) * 100,
-            'Mean_Time': np.mean(times),
-            'Std_Time': np.std(times)
-        }
-        
-        # Add optimality gap if available
-        if dp_optimal is not None:
-            gaps = [r.get('optimality_gap', 0) for r in results]
-            row['DP_Optimal'] = dp_optimal
-            row['Avg_Gap_%'] = np.mean(gaps)
-            row['Std_Gap_%'] = np.std(gaps)
-        
-        summary_data.append(row)
+        # Process each algorithm
+        for algo in ['FA', 'SA', 'HC', 'GA']:
+            if algo not in algo_files:
+                continue
+            
+            algo_file = algo_files[algo]
+            
+            try:
+                with open(algo_file, 'r') as f:
+                    data = json.load(f)
+                
+                if not isinstance(data, dict):
+                    continue
+                
+                best_value = data.get('best_value')
+                best_values_history = data.get('history', [])
+                is_feasible = data.get('is_feasible', False)
+                capacity_util = data.get('capacity_utilization', 0.0)
+                elapsed_time = data.get('elapsed_time', 0.0)
+                
+                row = {
+                    'n_items': n_items,
+                    'type': instance_type,
+                    'seed': seed,
+                    'Algorithm': algo,
+                    'Best_Value': best_value,
+                    'Feasible': 'Yes' if is_feasible else 'No',
+                    'Capacity_Util': capacity_util,
+                    'Elapsed_Time': elapsed_time,
+                    'N_Evals': len(best_values_history)
+                }
+                
+                # Add optimality gap if available
+                if dp_optimal is not None and is_feasible:
+                    gap = (dp_optimal - best_value) / dp_optimal * 100
+                    row['DP_Optimal'] = dp_optimal
+                    row['Gap_%'] = gap
+                
+                summary_data.append(row)
+                
+            except Exception as e:
+                print(f"Warning: Error loading {algo_file}: {e}")
+                continue
     
     if not summary_data:
         print("Warning: No valid data found for summary")
@@ -404,6 +525,40 @@ def perform_statistical_tests(results_dir: str, problem: str = 'rastrigin'):
                         _, p_val = wilcoxon_test(results[algo1], results[algo2])
                         print(f"{p_val:>8.4f}", end='')
                 print()
+
+
+def friedman_test(results):
+    """Perform Friedman test on results."""
+    data = [results[algo] for algo in sorted(results.keys())]
+    statistic, p_value = stats.friedmanchisquare(*data)
+    return statistic, p_value
+
+
+def wilcoxon_test(data1, data2):
+    """Perform Wilcoxon signed-rank test."""
+    statistic, p_value = stats.wilcoxon(data1, data2)
+    return statistic, p_value
+
+
+def compute_ranks(results):
+    """Compute average ranks across runs."""
+    algorithms = sorted(results.keys())
+    n_runs = len(results[algorithms[0]])
+    
+    ranks = {algo: 0 for algo in algorithms}
+    
+    for run_idx in range(n_runs):
+        run_values = [(algo, results[algo][run_idx]) for algo in algorithms]
+        run_values.sort(key=lambda x: x[1])
+        
+        for rank, (algo, _) in enumerate(run_values, 1):
+            ranks[algo] += rank
+    
+    # Average ranks
+    for algo in algorithms:
+        ranks[algo] /= n_runs
+    
+    return ranks
 
 
 def main():

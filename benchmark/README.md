@@ -232,51 +232,105 @@ quick_convergence,SA,15.23,4.56,14.12,7.89,28.45,11.34,18.67
 
 ## 📊 Visualizations
 
-Generated in `benchmark/results/plots/`:
+Generated in `benchmark/results/plots/` following academic metaheuristic benchmarking best practices:
 
-### Rastrigin Plots
+### Rastrigin Plots (Continuous Optimization)
 
-1. **Convergence Curves** (`*_convergence.png`)
-   - Median best-so-far with IQR bands
-   - All 4 algorithms on same plot
-   - Shows convergence speed
+1. **Convergence Curves** (`rastrigin_*_convergence.png`)
+   - **X-axis**: Function evaluations (not iterations)
+   - **Y-axis**: Error to optimum |f(x) - 0| (log scale)
+   - Median trajectory with IQR (25-75%) bands
+   - Shows convergence speed fairly across algorithms
 
-2. **Boxplots** (`*_boxplot.png`)
-   - Final fitness distributions
+2. **Boxplots** (`rastrigin_*_boxplot.png`)
+   - Final error-to-optimum distributions (log scale)
    - Shows robustness and outliers
-   - Includes mean markers
+   - Includes mean markers (red diamonds)
 
-3. **Bar Charts** (`*_bars.png`)
-   - Mean ± std comparisons
-   - Error bars for uncertainty
-   - Value labels on bars
+3. **ECDF Plots** (`rastrigin_*_ecdf.png`)
+   - **NEW**: Empirical Cumulative Distribution Function
+   - Shows P(error ≤ x) for each algorithm
+   - Better than mean/median for understanding tail behavior
 
-4. **Heatmaps** (`*_heatmap.png`)
-   - Win-loss matrix (row vs column)
-   - Color-coded performance
-   - Pairwise comparisons
+4. **Scalability Plot** (`rastrigin_scalability.png`)
+   - Mean error vs dimension (d=10/30/50)
+   - Log scale with error bars (std)
+   - Shows which algorithms scale well
 
-5. **Scalability Plot** (`scalability.png`)
-   - Performance vs dimension (d=10/30/50)
-   - Log scale for better visualization
-   - Error bars for uncertainty
+### Knapsack Plots (Constrained Discrete Optimization)
 
-### Knapsack Plots (TODO)
+**Per-Instance Plots:**
 
-Similar visualizations for Knapsack results.
+1. **Convergence Curves** (`knapsack_n*_*_seed*_convergence.png`)
+   - **X-axis**: Function evaluations
+   - **Y-axis**: Best value found
+   - Median with IQR bands
+   - **DP optimal reference line** (red dashed) when available
 
-## ⏱️ Estimated Runtime
+2. **Optimality Gap Boxplots** (`knapsack_n*_*_seed*_gap_boxplot.png`)
+   - Distribution of (DP_opt - best_value) / DP_opt × 100%
+   - Only for n=50, n=100 where DP is feasible
+   - Zero line shows optimal
 
-### Parallel Execution (4 cores) - RECOMMENDED
+**Aggregate Plots:**
 
-| Benchmark | Time (4 cores) | Speedup |
-|-----------|---------------|---------|
-| Rastrigin quick | ~2 min | 2.5x |
-| Rastrigin all | ~15 min | 3x |
-| Knapsack n=50 | ~10 min | 3x |
-| Knapsack n=100 | ~20 min | 3x |
-| Knapsack n=200 | ~45 min | 2.7x |
-| **Total** | **~2-3 hours** | **~3x** |
+3. **Feasibility Rate** (`knapsack_feasibility.png`)
+   - **NEW**: Bar charts showing % of feasible solutions
+   - Grouped by n_items (50/100/200)
+   - Sub-grouped by instance type
+   - **Critical**: Algorithms that violate constraints are penalized
+
+4. **Capacity Utilization** (`knapsack_capacity_utilization.png`)
+   - **NEW**: Boxplots of capacity_used / capacity
+   - Grouped by n_items
+   - Shows if algorithms under-fill or over-fill (violate)
+   - Green line at 1.0 = full utilization
+
+5. **Runtime vs Quality** (`knapsack_runtime_quality.png`)
+   - **NEW**: Scatter plot of elapsed_time vs optimality_gap
+   - Shows Pareto front of fast-but-good algorithms
+   - Color-coded by algorithm
+
+6. **Scalability Plots** (`knapsack_*_seed*_scalability.png`)
+   - Mean gap vs n_items (50/100/200)
+   - Generated for uncorrelated and weakly_correlated
+   - Error bars show uncertainty
+
+## 📈 Metrics (Academic Standards)
+
+### Rastrigin Metrics
+
+| Metric | Description | Why It Matters |
+|--------|-------------|----------------|
+| **Error to Optimum** | \|f(x) - 0\| | Direct measure of solution quality |
+| **Convergence Speed** | Evals to reach threshold | Efficiency metric |
+| **ECDF** | P(error ≤ x) | Shows distribution tail behavior |
+| **Success Rate** | % runs achieving target | Robustness indicator |
+
+**Key:** Lower error = better. Faster convergence = better. Higher ECDF at low error = better.
+
+### Knapsack Metrics
+
+| Metric | Description | Why It Matters |
+|--------|-------------|----------------|
+| **Optimality Gap** | (DP_opt - value)/DP_opt × 100% | Solution quality vs ground truth |
+| **Feasibility Rate** | % feasible solutions | **Mandatory**: Violating constraints is failure |
+| **Capacity Utilization** | weight_used / capacity | Efficiency of packing |
+| **Runtime** | Elapsed time (seconds) | Practical efficiency |
+
+**Key:** Lower gap = better. 100% feasibility = mandatory. Higher utilization (≤1.0) = better.
+
+### Problem-Specific Standards
+
+**Rastrigin (Continuous):**
+- Known global optimum: f(x*) = 0
+- Budget measured in function evaluations
+- No constraints, pure optimization
+
+**Knapsack (Discrete + Constrained):**
+- DP optimal available for n ≤ 100
+- **Infeasible solutions have no value** (rejected)
+- Success = high value + feasible + good utilization
 
 ## 🎯 Expected Results
 
@@ -383,22 +437,6 @@ pip install numpy scipy pandas matplotlib seaborn
 4. **Write technical report** using generated tables and plots
 
 5. **Archive results** for reproducibility
-
-## 📚 References
-
-1. Yang, X. S. (2008). *Nature-inspired metaheuristic algorithms*. Luniver press.
-2. [Rastrigin Function - Virtual Library](https://www.sfu.ca/~ssurjano/rastr.html)
-3. [Knapsack Problem - Wikipedia](https://en.wikipedia.org/wiki/Knapsack_problem)
-4. Wilcoxon, F. (1945). "Individual comparisons by ranking methods". *Biometrics Bulletin*.
-5. Friedman, M. (1937). "The use of ranks to avoid the assumption of normality". *JASA*.
-
-## 👥 Contact
-
-For issues or questions, contact: @1234quan1234
-
----
-
-**Note**: This is an academic benchmark suite. Execution times and results may vary based on hardware. All random seeds are fixed for reproducibility.
 
 ## 📚 References
 
