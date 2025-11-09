@@ -104,25 +104,36 @@ def run_single_knapsack_experiment(algo_name, problem, params, seed, max_iter):
     }
 
 
-def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='benchmark/results/knapsack', n_jobs=None):
+def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='benchmark/results/knapsack', n_jobs=None, config_name=None):
     """
     Run Knapsack benchmark with parallel execution.
     
     Parameters
     ----------
-    size : int
-        Number of items
+    size : int or str
+        Number of items (50, 100, 200, 500, or 'all')
     instance_type : str
         Instance type
     output_dir : str
         Output directory
     n_jobs : int, optional
         Number of parallel jobs
+    config_name : str, optional
+        Config name ('small', 'medium', 'large'). If provided, overrides size/instance_type.
     """
+    
+    # Map config_name to size/instance_type if provided
+    if config_name is not None:
+        config_map = {
+            'small': (50, 'all'),
+            'medium': (100, 'all'),
+            'large': (200, 'all')
+        }
+        if config_name in config_map:
+            size, instance_type = config_map[config_name]
     
     # Get all configs or filter by size/type
     all_configs = get_knapsack_configs()
-    
     if size != 'all':
         all_configs = [c for c in all_configs if c.n_items == size]
     

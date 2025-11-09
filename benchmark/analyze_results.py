@@ -222,18 +222,26 @@ def generate_rastrigin_summary(results_dir: str, output_file: str):
     summary_data = []
     
     for config_name in configs:
-        results = load_rastrigin_results(results_dir, config_name)
-        
-        for algo, fitness_values in results.items():
-            summary_data.append({
-                'Configuration': config_name,
-                'Algorithm': algo,
-                'Mean': np.mean(fitness_values),
-                'Std': np.std(fitness_values),
-                'Min': np.min(fitness_values),
-                'Max': np.max(fitness_values),
-                'Median': np.median(fitness_values)
-            })
+        try:
+            results = load_rastrigin_results(results_dir, config_name)
+            
+            for algo, fitness_values in results.items():
+                summary_data.append({
+                    'Configuration': config_name,
+                    'Algorithm': algo,
+                    'Mean': np.mean(fitness_values),
+                    'Std': np.std(fitness_values),
+                    'Min': np.min(fitness_values),
+                    'Max': np.max(fitness_values),
+                    'Median': np.median(fitness_values)
+                })
+        except FileNotFoundError:
+            print(f"Warning: Results not found for configuration '{config_name}'")
+            continue
+    
+    if not summary_data:
+        print("Warning: No data found for summary")
+        return None
     
     df = pd.DataFrame(summary_data)
     df = df.sort_values(['Configuration', 'Algorithm'])
@@ -251,50 +259,85 @@ def generate_knapsack_summary(results_dir: str, output_file: str):
     """Generate summary CSV for Knapsack results."""
     
     summary_data = []
+    results_path = Path(results_dir)
     
-    for config_dir in Path(results_dir).iterdir():
-        if not config_dir.is_dir():
+    if not results_path.exists():
+        print(f"Warning: Results directory not found: {results_dir}")
+        return None
+    
+    # Find all JSON result files
+    json_files = list(results_path.glob('*.json'))
+    
+    if not json_files:
+        print(f"Warning: No JSON files found in {results_dir}")
+        return None
+    
+    for json_file in json_files:
+        # Parse filename: n50_uncorrelated_seed42_FA.json
+        filename = json_file.stem
+        parts = filename.split('_')
+        
+        if len(parts) < 4:
+            print(f"Warning: Skipping file with unexpected format: {filename}")
             continue
         
-        # Parse config name (e.g., "n50_uncorrelated_seed42")
-        parts = config_dir.name.split('_')
-        n_items = int(parts[0][1:])
-        knapsack_type = parts[1]
-        seed = int(parts[2].replace('seed', ''))
+        try:
+            n_items = int(parts[0][1:])  # Remove 'n' prefix
+            instance_type = parts[1]
+            seed = int(parts[2].replace('seed', ''))
+            algo_name = parts[3]
+        except (ValueError, IndexError) as e:
+            print(f"Warning: Could not parse filename {filename}: {e}")
+            continue
         
-        for algo_file in config_dir.glob('*_results.json'):
-            algo_name = algo_file.stem.replace('_results', '')
-            
-            with open(algo_file, 'r') as f:
-                data = json.load(f)
-            
-            best_values = [r['best_fitness'] for r in data]
-            times = [r['elapsed_time'] for r in data]
-            
-            row = {
-                'n_items': n_items,
-                'type': knapsack_type,
-                'seed': seed,
-                'Algorithm': algo_name,
-                'Mean_Value': np.mean(best_values),
-                'Std_Value': np.std(best_values),
-                'Max_Value': np.max(best_values),
-                'Min_Value': np.min(best_values),
-                'Mean_Time': np.mean(times),
-                'Std_Time': np.std(times)
-            }
-            
-            # Calculate gap if optimal is available
-            gaps = []
-            for r in data:
-                if 'gap_percent' in r:
-                    gaps.append(r['gap_percent'])
-            
-            if gaps:
-                row['Avg_Gap_%'] = np.mean(gaps)
-                row['Std_Gap_%'] = np.std(gaps)
-            
-            summary_data.append(row)
+        # Load results
+        with open(json_file, 'r') as f:
+            data = json.load(f)
+        
+        # Check if data has 'results' key (new format) or is a list (old format)
+        if isinstance(data, dict) and 'results' in data:
+            results = data['results']
+            config = data.get('config', {})
+            dp_optimal = config.get('dp_optimal', None)
+        elif isinstance(data, list):
+            results = data
+            dp_optimal = None
+        else:
+            print(f"Warning: Unexpected data format in {json_file}")
+            continue
+        
+        # Extract metrics
+        best_values = [r['best_value'] for r in results]
+        times = [r['elapsed_time'] for r in results]
+        feasible = [r.get('is_feasible', True) for r in results]
+        
+        row = {
+            'n_items': n_items,
+            'type': instance_type,
+            'seed': seed,
+            'Algorithm': algo_name,
+            'Mean_Value': np.mean(best_values),
+            'Std_Value': np.std(best_values),
+            'Max_Value': np.max(best_values),
+            'Min_Value': np.min(best_values),
+            'Median_Value': np.median(best_values),
+            'Feasibility_%': np.mean(feasible) * 100,
+            'Mean_Time': np.mean(times),
+            'Std_Time': np.std(times)
+        }
+        
+        # Add optimality gap if available
+        if dp_optimal is not None:
+            gaps = [r.get('optimality_gap', 0) for r in results]
+            row['DP_Optimal'] = dp_optimal
+            row['Avg_Gap_%'] = np.mean(gaps)
+            row['Std_Gap_%'] = np.std(gaps)
+        
+        summary_data.append(row)
+    
+    if not summary_data:
+        print("Warning: No valid data found for summary")
+        return None
     
     df = pd.DataFrame(summary_data)
     df = df.sort_values(['n_items', 'type', 'seed', 'Algorithm'])
@@ -387,24 +430,39 @@ def main():
     
     if args.problem in ['rastrigin', 'all']:
         if Path(args.rastrigin_dir).exists():
-            # Generate summary
-            generate_rastrigin_summary(
-                args.rastrigin_dir,
-                str(output_path / 'rastrigin_summary.csv')
-            )
-            
-            # Statistical tests
-            perform_statistical_tests(args.rastrigin_dir, 'rastrigin')
+            try:
+                # Generate summary
+                generate_rastrigin_summary(
+                    args.rastrigin_dir,
+                    str(output_path / 'rastrigin_summary.csv')
+                )
+                
+                # Statistical tests
+                perform_statistical_tests(args.rastrigin_dir, 'rastrigin')
+            except Exception as e:
+                print(f"Error analyzing Rastrigin results: {e}")
+                import traceback
+                traceback.print_exc()
         else:
             print(f"Rastrigin results not found at: {args.rastrigin_dir}")
     
     if args.problem in ['knapsack', 'all']:
         if Path(args.knapsack_dir).exists():
-            # Generate summary
-            generate_knapsack_summary(
-                args.knapsack_dir,
-                str(output_path / 'knapsack_summary.csv')
-            )
+            try:
+                # Generate summary
+                df = generate_knapsack_summary(
+                    args.knapsack_dir,
+                    str(output_path / 'knapsack_summary.csv')
+                )
+                
+                if df is not None:
+                    print("\nKnapsack summary generated successfully")
+                else:
+                    print("\nWarning: Could not generate Knapsack summary")
+            except Exception as e:
+                print(f"Error analyzing Knapsack results: {e}")
+                import traceback
+                traceback.print_exc()
         else:
             print(f"Knapsack results not found at: {args.knapsack_dir}")
     

@@ -9,7 +9,6 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.problems.continuous.sphere import SphereProblem
 from src.classical.hill_climbing import HillClimbingOptimizer
 from src.classical.simulated_annealing import SimulatedAnnealingOptimizer
 from src.classical.genetic_algorithm import GeneticAlgorithmOptimizer
