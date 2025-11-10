@@ -1,6 +1,7 @@
 """
 Generate comprehensive visualizations for benchmark results.
 Academic-grade benchmark visualization following metaheuristic best practices.
+Updated to work with latest JSON structure and file naming conventions.
 """
 
 import sys
@@ -12,10 +13,9 @@ import json
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
-from typing import Dict, List, Tuple
-
-# Import helpers from analyze_results
-from benchmark.analyze_results import get_rastrigin_raw_data, get_knapsack_raw_data
+from typing import Dict, List, Tuple, Optional
+import re
+from collections import defaultdict
 
 # Set style
 sns.set_style("whitegrid")
@@ -28,13 +28,204 @@ MARKERS = {'FA': 'o', 'SA': 's', 'HC': '^', 'GA': 'D'}
 
 
 # ============================================================================
+# UNIFIED DATA LOADING (Robust to file structure changes)
+# ============================================================================
+
+def load_json_safe(filepath: Path) -> Optional[dict]:
+    """Safely load JSON file with error handling."""
+    try:
+        with open(filepath, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Warning: Could not load {filepath}: {e}")
+        return None
+
+
+def get_rastrigin_raw_data(results_dir: str, config_name: str) -> Dict:
+    """
+    Load Rastrigin results from files matching pattern:
+    rastrigin_{config_name}_{algo}_{timestamp}.json
+    
+    Returns: {algo: {'histories': [...], 'error_to_optimum': [...]}}
+    """
+    results_path = Path(results_dir) / 'rastrigin'
+    if not results_path.exists():
+        results_path = Path(results_dir)
+    
+    pattern = f'rastrigin_{config_name}_*.json'
+    json_files = list(results_path.glob(pattern))
+    
+    if not json_files:
+        print(f"No results found for {config_name} in {results_path}")
+        return {}
+    
+    raw_data = defaultdict(lambda: {'histories': [], 'error_to_optimum': []})
+    
+    for json_file in json_files:
+        data = load_json_safe(json_file)
+        if not data:
+            continue
+        
+        # robust algo extraction (with or without strict timestamp)
+        match = re.search(r'_(FA|GA|SA|HC)_\d{8}T\d{6}\.json$', json_file.name)
+        if not match:
+            match = re.search(r'_(FA|GA|SA|HC)\.json$', json_file.name)
+        if not match:
+            # can't infer algorithm -> skip
+            continue
+        algo = match.group(1)
+        
+        # normalize runs: support aggregated 'results', single-run dict, or list-of-runs
+        runs = []
+        if isinstance(data, dict) and 'results' in data and isinstance(data['results'], list):
+            runs = data['results']
+        elif isinstance(data, list):
+            runs = data
+        elif isinstance(data, dict):
+            runs = [data]
+        else:
+            continue
+        
+        for run in runs:
+            # tolerate multiple possible key names
+            history = run.get('history') or run.get('hist') or run.get('trajectory') or []
+            final_error = run.get('final_error')
+            
+            # many files store best fitness as 'best_fitness' -> convert
+            if final_error is None:
+                bf = run.get('best_fitness')
+                if bf is not None:
+                    # Rastrigin optimum = 0 -> error = abs(best_fitness)
+                    final_error = abs(bf)
+            
+            # if still missing but history present, take last history value
+            if final_error is None and history:
+                try:
+                    last = history[-1]
+                    if isinstance(last, (int, float)):
+                        final_error = abs(last)
+                except Exception:
+                    final_error = None
+            
+            if history:
+                raw_data[algo]['histories'].append(list(history))
+            if final_error is not None:
+                raw_data[algo]['error_to_optimum'].append(float(final_error))
+    
+    return dict(raw_data)
+
+
+def get_knapsack_raw_data(results_dir: str, n_items: int, 
+                          instance_type: str, instance_seed: int) -> Dict:
+    """
+    Load Knapsack results from files matching pattern:
+    knapsack_n{size}_{type}_seed{seed}_{algo}_{timestamp}.json
+    
+    Returns: {
+        'dp_optimal': float,
+        algo: {
+            'histories': [...],
+            'optimality_gaps': [...],
+            'elapsed_times': [...],
+            'capacity_utilization': [...],
+            'feasibility': [...]
+        }
+    }
+    """
+    results_path = Path(results_dir) / 'knapsack'
+    if not results_path.exists():
+        results_path = Path(results_dir)
+    
+    pattern = f'knapsack_n{n_items}_{instance_type}_seed{instance_seed}_*.json'
+    json_files = list(results_path.glob(pattern))
+    
+    if not json_files:
+        return {}
+    
+    raw_data = {'dp_optimal': None}
+    
+    for json_file in json_files:
+        data = load_json_safe(json_file)
+        if not data:
+            continue
+        
+        # Extract algorithm from filename
+        match = re.search(r'_(FA|GA|SA|HC)_\d+T\d+\.json$', json_file.name)
+        if not match:
+            continue
+        algo = match.group(1)
+        
+        if algo not in raw_data:
+            raw_data[algo] = {
+                'histories': [],
+                'optimality_gaps': [],
+                'elapsed_times': [],
+                'capacity_utilization': [],
+                'feasibility': []
+            }
+        
+        # Extract DP optimal if present
+        if 'config' in data and 'dp_optimal' in data['config']:
+            raw_data['dp_optimal'] = data['config']['dp_optimal']
+        
+        # Extract run data
+        if 'results' in data:
+            # Aggregated format
+            for run in data['results']:
+                raw_data[algo]['histories'].append(run.get('history', []))
+                if 'optimality_gap' in run:
+                    raw_data[algo]['optimality_gaps'].append(run['optimality_gap'])
+                if 'elapsed_time' in run:
+                    raw_data[algo]['elapsed_times'].append(run['elapsed_time'])
+                if 'capacity_utilization' in run:
+                    raw_data[algo]['capacity_utilization'].append(run['capacity_utilization'])
+                if 'is_feasible' in run:
+                    raw_data[algo]['feasibility'].append(bool(run['is_feasible']))
+        else:
+            # Single run format
+            raw_data[algo]['histories'].append(data.get('history', []))
+            if 'optimality_gap' in data:
+                raw_data[algo]['optimality_gaps'].append(data['optimality_gap'])
+            if 'elapsed_time' in data:
+                raw_data[algo]['elapsed_times'].append(data['elapsed_time'])
+            if 'capacity_utilization' in data:
+                raw_data[algo]['capacity_utilization'].append(data['capacity_utilization'])
+            if 'is_feasible' in data:
+                raw_data[algo]['feasibility'].append(bool(data['is_feasible']))
+    
+    return raw_data
+
+
+def discover_knapsack_configs(results_dir: str) -> List[Tuple[int, str, int]]:
+    """
+    Discover all knapsack configurations from result files.
+    Returns: [(n_items, instance_type, seed), ...]
+    """
+    results_path = Path(results_dir) / 'knapsack'
+    if not results_path.exists():
+        results_path = Path(results_dir)
+    
+    configs = set()
+    
+    for json_file in results_path.glob('knapsack_n*_*.json'):
+        # Parse: knapsack_n100_uncorrelated_seed42_FA_20251110T202419.json
+        match = re.match(r'knapsack_n(\d+)_([a-z_]+)_seed(\d+)_', json_file.name)
+        if match:
+            n_items = int(match.group(1))
+            instance_type = match.group(2)
+            seed = int(match.group(3))
+            configs.add((n_items, instance_type, seed))
+    
+    return sorted(configs)
+
+
+# ============================================================================
 # RASTRIGIN VISUALIZATIONS (Continuous Optimization)
 # ============================================================================
 
 def plot_rastrigin_convergence(results_dir: str, config_name: str, output_file: str):
     """
     Plot convergence curves: median error-to-optimum vs evaluations with IQR bands.
-    This is the standard way to visualize metaheuristic convergence.
     """
     raw_data = get_rastrigin_raw_data(results_dir, config_name)
     
@@ -44,13 +235,17 @@ def plot_rastrigin_convergence(results_dir: str, config_name: str, output_file: 
     
     fig, ax = plt.subplots(figsize=(12, 7))
     
-    for algo, data in raw_data.items():
+    for algo in sorted(raw_data.keys()):
+        data = raw_data[algo]
         histories = data['histories']
         
-        # Convert to error-to-optimum
-        error_histories = [np.abs(np.array(h) - 0.0) for h in histories]
+        if not histories:
+            continue
         
-        # Align to same evaluation budget (use shortest)
+        # Convert to error-to-optimum (Rastrigin optimum = 0)
+        error_histories = [np.abs(np.array(h)) for h in histories]
+        
+        # Align to same evaluation budget
         min_len = min(len(h) for h in error_histories)
         error_histories = [h[:min_len] for h in error_histories]
         error_histories = np.array(error_histories)
@@ -62,11 +257,9 @@ def plot_rastrigin_convergence(results_dir: str, config_name: str, output_file: 
         
         evals = np.arange(1, len(median) + 1)
         
-        # Plot median line
+        # Plot median line with IQR band
         ax.plot(evals, median, label=algo, color=COLORS[algo],
                 linewidth=2, alpha=0.9)
-        
-        # Plot IQR band
         ax.fill_between(evals, q25, q75, color=COLORS[algo], alpha=0.2)
     
     ax.set_xlabel('Function Evaluations', fontsize=12)
@@ -81,7 +274,7 @@ def plot_rastrigin_convergence(results_dir: str, config_name: str, output_file: 
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"Rastrigin convergence plot saved: {output_file}")
+    print(f"✓ Saved: {output_file}")
 
 
 def plot_rastrigin_boxplots(results_dir: str, config_name: str, output_file: str):
@@ -99,7 +292,6 @@ def plot_rastrigin_boxplots(results_dir: str, config_name: str, output_file: str
     bp = ax.boxplot(data_to_plot, labels=algorithms, patch_artist=True,
                     showmeans=True, meanprops=dict(marker='D', markerfacecolor='red', markersize=8))
     
-    # Color boxes
     colors = [COLORS[algo] for algo in algorithms]
     for patch, color in zip(bp['boxes'], colors):
         patch.set_facecolor(color)
@@ -115,14 +307,11 @@ def plot_rastrigin_boxplots(results_dir: str, config_name: str, output_file: str
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"Rastrigin boxplot saved: {output_file}")
+    print(f"✓ Saved: {output_file}")
 
 
 def plot_rastrigin_ecdf(results_dir: str, config_name: str, output_file: str):
-    """
-    Plot Empirical Cumulative Distribution Function (ECDF) of final errors.
-    Shows probability of achieving certain quality level.
-    """
+    """Plot Empirical Cumulative Distribution Function of final errors."""
     raw_data = get_rastrigin_raw_data(results_dir, config_name)
     
     if not raw_data:
@@ -133,6 +322,8 @@ def plot_rastrigin_ecdf(results_dir: str, config_name: str, output_file: str):
     for algo in sorted(raw_data.keys()):
         errors = np.sort(raw_data[algo]['error_to_optimum'])
         n = len(errors)
+        if n == 0:
+            continue
         ecdf = np.arange(1, n + 1) / n
         
         ax.plot(errors, ecdf, label=algo, color=COLORS[algo],
@@ -151,7 +342,7 @@ def plot_rastrigin_ecdf(results_dir: str, config_name: str, output_file: str):
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"Rastrigin ECDF plot saved: {output_file}")
+    print(f"✓ Saved: {output_file}")
 
 
 def plot_rastrigin_scalability(results_dir: str, output_file: str):
@@ -168,7 +359,7 @@ def plot_rastrigin_scalability(results_dir: str, output_file: str):
         for config_name in configs:
             raw_data = get_rastrigin_raw_data(results_dir, config_name)
             
-            if algo in raw_data:
+            if algo in raw_data and len(raw_data[algo]['error_to_optimum']) > 0:
                 errors = raw_data[algo]['error_to_optimum']
                 means.append(np.mean(errors))
                 stds.append(np.std(errors))
@@ -191,32 +382,19 @@ def plot_rastrigin_scalability(results_dir: str, output_file: str):
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"Rastrigin scalability plot saved: {output_file}")
+    print(f"✓ Saved: {output_file}")
 
 
 # ============================================================================
 # KNAPSACK VISUALIZATIONS (Constrained Discrete Optimization)
 # ============================================================================
 
-def normalize_instance_type(instance_type: str) -> str:
-    """Map config instance type to filename format."""
-    type_map = {
-        'uncorrelated': 'uncorrelated',
-        'weakly_correlated': 'weakly',
-        'strongly_correlated': 'strongly',
-        'subset_sum': 'subset'
-    }
-    return type_map.get(instance_type, instance_type)
-
-
 def plot_knapsack_convergence(results_dir: str, n_items: int, instance_type: str,
                               instance_seed: int, output_file: str):
     """Plot convergence: best value vs evaluations with DP optimal reference."""
-    # Normalize instance type for filename matching
-    file_type = normalize_instance_type(instance_type)
-    raw_data = get_knapsack_raw_data(results_dir, n_items, file_type, instance_seed)
+    raw_data = get_knapsack_raw_data(results_dir, n_items, instance_type, instance_seed)
     
-    if not raw_data or len(raw_data) <= 2:
+    if not raw_data or len(raw_data) <= 1:
         print(f"No results for n={n_items}, {instance_type}, seed={instance_seed}")
         return
     
@@ -231,9 +409,14 @@ def plot_knapsack_convergence(results_dir: str, n_items: int, instance_type: str
         data = raw_data[algo]
         histories = data['histories']
         
+        if not histories:
+            continue
+        
         # Align to same evaluation budget
-        min_len = min(len(h) for h in histories)
-        histories = [h[:min_len] for h in histories]
+        min_len = min(len(h) for h in histories if len(h) > 0)
+        if min_len == 0:
+            continue
+        histories = [h[:min_len] for h in histories if len(h) > 0]
         histories = np.array(histories)
         
         # Calculate median and IQR
@@ -254,7 +437,7 @@ def plot_knapsack_convergence(results_dir: str, n_items: int, instance_type: str
     
     ax.set_xlabel('Function Evaluations', fontsize=12)
     ax.set_ylabel('Best Value Found', fontsize=12)
-    ax.set_title(f'Knapsack Convergence - n={n_items}, {instance_type.replace("_", " ").title()}, seed={instance_seed}',
+    ax.set_title(f'Knapsack Convergence - n={n_items}, {instance_type.title()}, seed={instance_seed}',
                  fontsize=14, fontweight='bold')
     ax.legend(fontsize=11)
     ax.grid(True, alpha=0.3)
@@ -263,14 +446,13 @@ def plot_knapsack_convergence(results_dir: str, n_items: int, instance_type: str
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"Knapsack convergence saved: {output_file}")
+    print(f"✓ Saved: {output_file}")
 
 
 def plot_knapsack_gap(results_dir: str, n_items: int, instance_type: str,
                      instance_seed: int, output_file: str):
     """Plot optimality gap distribution (only when DP optimal available)."""
-    file_type = normalize_instance_type(instance_type)
-    raw_data = get_knapsack_raw_data(results_dir, n_items, file_type, instance_seed)
+    raw_data = get_knapsack_raw_data(results_dir, n_items, instance_type, instance_seed)
     
     if not raw_data or not raw_data.get('dp_optimal'):
         return
@@ -297,7 +479,7 @@ def plot_knapsack_gap(results_dir: str, n_items: int, instance_type: str,
         patch.set_alpha(0.7)
     
     ax.set_ylabel('Optimality Gap (%)', fontsize=12)
-    ax.set_title(f'Knapsack Optimality Gap - n={n_items}, {instance_type.replace("_", " ").title()}, seed={instance_seed}',
+    ax.set_title(f'Knapsack Optimality Gap - n={n_items}, {instance_type.title()}, seed={instance_seed}',
                  fontsize=14, fontweight='bold')
     ax.grid(True, alpha=0.3, axis='y')
     ax.axhline(y=0, color='red', linestyle='--', linewidth=1, alpha=0.5)
@@ -306,42 +488,26 @@ def plot_knapsack_gap(results_dir: str, n_items: int, instance_type: str,
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"Knapsack gap plot saved: {output_file}")
+    print(f"✓ Saved: {output_file}")
 
 
-def plot_knapsack_feasibility(results_dir: str, output_file: str):
+def plot_knapsack_aggregate_feasibility(results_dir: str, output_file: str):
     """Plot feasibility rate across all configurations."""
-    results_path = Path(results_dir)
-    json_files = list(results_path.glob('n*_*.json'))  # Match actual format
+    configs = discover_knapsack_configs(results_dir)
     
-    if not json_files:
+    if not configs:
+        print("No knapsack results found")
         return
     
-    # Collect data
+    import pandas as pd
+    
     feasibility_data = []
     
-    for json_file in json_files:
-        filename = json_file.stem
-        try:
-            # Parse: n50_uncorrelated_seed42_FA.json
-            parts = filename.rsplit('_', 1)
-            algo = parts[1]
-            if algo not in ['FA', 'GA', 'HC', 'SA']:
-                continue
-            
-            config_part = parts[0]
-            config_parts = config_part.split('_')
-            n_items = int(config_parts[0][1:])
-            seed_idx = next(i for i, p in enumerate(config_parts) if p.startswith('seed'))
-            seed = int(config_parts[seed_idx].replace('seed', ''))
-            instance_type = '_'.join(config_parts[1:seed_idx])
-        except:
-            continue
-        
-        raw_data = get_knapsack_raw_data(results_path, n_items, instance_type, seed)
+    for n_items, instance_type, seed in configs:
+        raw_data = get_knapsack_raw_data(results_dir, n_items, instance_type, seed)
         
         for algo in ['FA', 'GA', 'SA', 'HC']:
-            if algo in raw_data:
+            if algo in raw_data and len(raw_data[algo]['feasibility']) > 0:
                 feas_rate = np.mean(raw_data[algo]['feasibility']) * 100
                 feasibility_data.append({
                     'n_items': n_items,
@@ -353,13 +519,17 @@ def plot_knapsack_feasibility(results_dir: str, output_file: str):
     if not feasibility_data:
         return
     
-    import pandas as pd
     df = pd.DataFrame(feasibility_data)
     
-    # Group and plot
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    # Get unique sizes
+    sizes = sorted(df['n_items'].unique())
+    n_sizes = len(sizes)
     
-    for idx, n in enumerate([50, 100, 200]):
+    fig, axes = plt.subplots(1, n_sizes, figsize=(5 * n_sizes, 5))
+    if n_sizes == 1:
+        axes = [axes]
+    
+    for idx, n in enumerate(sizes):
         ax = axes[idx]
         df_n = df[df['n_items'] == n]
         
@@ -370,7 +540,7 @@ def plot_knapsack_feasibility(results_dir: str, output_file: str):
         pivot = df_n.pivot_table(values='Feasibility', index='type', 
                                  columns='Algorithm', aggfunc='mean')
         
-        pivot.plot(kind='bar', ax=ax, color=[COLORS[a] for a in pivot.columns])
+        pivot.plot(kind='bar', ax=ax, color=[COLORS.get(a, 'gray') for a in pivot.columns])
         ax.set_title(f'n={n}', fontsize=12, fontweight='bold')
         ax.set_ylabel('Feasibility Rate (%)', fontsize=11)
         ax.set_xlabel('')
@@ -378,49 +548,33 @@ def plot_knapsack_feasibility(results_dir: str, output_file: str):
         ax.set_ylim([0, 105])
         ax.legend(fontsize=9)
         ax.grid(True, alpha=0.3, axis='y')
+        ax.tick_params(axis='x', rotation=45)
     
     plt.suptitle('Knapsack Feasibility Rate', fontsize=14, fontweight='bold')
     plt.tight_layout()
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"Knapsack feasibility plot saved: {output_file}")
+    print(f"✓ Saved: {output_file}")
 
 
-def plot_knapsack_capacity_utilization(results_dir: str, output_file: str):
-    """Plot capacity utilization distribution."""
-    results_path = Path(results_dir)
-    json_files = list(results_path.glob('n*_*.json'))
+def plot_knapsack_aggregate_capacity(results_dir: str, output_file: str):
+    """Plot capacity utilization distribution across all configs."""
+    configs = discover_knapsack_configs(results_dir)
     
-    if not json_files:
+    if not configs:
         return
     
-    # Collect data
+    import pandas as pd
+    
     util_data = []
     
-    for json_file in json_files:
-        filename = json_file.stem
-        try:
-            parts = filename.rsplit('_', 1)
-            algo = parts[1]
-            if algo not in ['FA', 'GA', 'HC', 'SA']:
-                continue
-            
-            config_part = parts[0]
-            config_parts = config_part.split('_')
-            n_items = int(config_parts[0][1:])
-            seed_idx = next(i for i, p in enumerate(config_parts) if p.startswith('seed'))
-            seed = int(config_parts[seed_idx].replace('seed', ''))
-            instance_type = '_'.join(config_parts[1:seed_idx])
-        except:
-            continue
-        
-        raw_data = get_knapsack_raw_data(results_path, n_items, instance_type, seed)
+    for n_items, instance_type, seed in configs:
+        raw_data = get_knapsack_raw_data(results_dir, n_items, instance_type, seed)
         
         for algo in ['FA', 'GA', 'SA', 'HC']:
-            if algo in raw_data:
-                utils = raw_data[algo]['capacity_utilization']
-                for u in utils:
+            if algo in raw_data and len(raw_data[algo]['capacity_utilization']) > 0:
+                for u in raw_data[algo]['capacity_utilization']:
                     util_data.append({
                         'n_items': n_items,
                         'Algorithm': algo,
@@ -430,12 +584,16 @@ def plot_knapsack_capacity_utilization(results_dir: str, output_file: str):
     if not util_data:
         return
     
-    import pandas as pd
     df = pd.DataFrame(util_data)
     
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    sizes = sorted(df['n_items'].unique())
+    n_sizes = len(sizes)
     
-    for idx, n in enumerate([50, 100, 200]):
+    fig, axes = plt.subplots(1, n_sizes, figsize=(5 * n_sizes, 5))
+    if n_sizes == 1:
+        axes = [axes]
+    
+    for idx, n in enumerate(sizes):
         ax = axes[idx]
         df_n = df[df['n_items'] == n]
         
@@ -456,7 +614,7 @@ def plot_knapsack_capacity_utilization(results_dir: str, output_file: str):
         
         ax.set_title(f'n={n}', fontsize=12, fontweight='bold')
         ax.set_ylabel('Capacity Utilization', fontsize=11)
-        ax.axhline(y=1.0, color='green', linestyle='--', linewidth=1, alpha=0.5, label='Full')
+        ax.axhline(y=1.0, color='green', linestyle='--', linewidth=1, alpha=0.5)
         ax.grid(True, alpha=0.3, axis='y')
     
     plt.suptitle('Knapsack Capacity Utilization', fontsize=14, fontweight='bold')
@@ -464,14 +622,21 @@ def plot_knapsack_capacity_utilization(results_dir: str, output_file: str):
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"Knapsack capacity utilization plot saved: {output_file}")
+    print(f"✓ Saved: {output_file}")
 
 
 def plot_knapsack_scalability(results_dir: str, instance_type: str,
                               instance_seed: int, output_file: str):
     """Plot scalability: gap vs problem size."""
-    sizes = [50, 100, 200]
-    file_type = normalize_instance_type(instance_type)
+    configs = discover_knapsack_configs(results_dir)
+    
+    # Filter by type and seed
+    configs = [(n, t, s) for n, t, s in configs if t == instance_type and s == instance_seed]
+    
+    if not configs:
+        return
+    
+    sizes = sorted(set(n for n, _, _ in configs))
     
     fig, ax = plt.subplots(figsize=(10, 6))
     
@@ -480,7 +645,7 @@ def plot_knapsack_scalability(results_dir: str, instance_type: str,
         stds = []
         
         for n_items in sizes:
-            raw_data = get_knapsack_raw_data(results_dir, n_items, file_type, instance_seed)
+            raw_data = get_knapsack_raw_data(results_dir, n_items, instance_type, instance_seed)
             
             if algo in raw_data and len(raw_data[algo]['optimality_gaps']) > 0:
                 gaps.append(np.mean(raw_data[algo]['optimality_gaps']))
@@ -494,7 +659,7 @@ def plot_knapsack_scalability(results_dir: str, instance_type: str,
     
     ax.set_xlabel('Number of Items', fontsize=12)
     ax.set_ylabel('Mean Optimality Gap (%)', fontsize=12)
-    ax.set_title(f'Knapsack Scalability - {instance_type.replace("_", " ").title()}, seed={instance_seed}',
+    ax.set_title(f'Knapsack Scalability - {instance_type.title()}, seed={instance_seed}',
                  fontsize=14, fontweight='bold')
     ax.legend(fontsize=11)
     ax.grid(True, alpha=0.3)
@@ -503,38 +668,22 @@ def plot_knapsack_scalability(results_dir: str, instance_type: str,
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"Knapsack scalability saved: {output_file}")
+    print(f"✓ Saved: {output_file}")
 
 
 def plot_knapsack_runtime_quality(results_dir: str, output_file: str):
     """Scatter plot: runtime vs quality trade-off."""
-    results_path = Path(results_dir)
-    json_files = list(results_path.glob('n*_*.json'))
+    configs = discover_knapsack_configs(results_dir)
     
-    if not json_files:
+    if not configs:
         return
     
-    # Collect data
+    import pandas as pd
+    
     scatter_data = []
     
-    for json_file in json_files:
-        filename = json_file.stem
-        try:
-            parts = filename.rsplit('_', 1)
-            algo = parts[1]
-            if algo not in ['FA', 'GA', 'HC', 'SA']:
-                continue
-            
-            config_part = parts[0]
-            config_parts = config_part.split('_')
-            n_items = int(config_parts[0][1:])
-            seed_idx = next(i for i, p in enumerate(config_parts) if p.startswith('seed'))
-            seed = int(config_parts[seed_idx].replace('seed', ''))
-            instance_type = '_'.join(config_parts[1:seed_idx])
-        except:
-            continue
-        
-        raw_data = get_knapsack_raw_data(results_path, n_items, instance_type, seed)
+    for n_items, instance_type, seed in configs:
+        raw_data = get_knapsack_raw_data(results_dir, n_items, instance_type, seed)
         
         for algo in ['FA', 'GA', 'SA', 'HC']:
             if algo in raw_data and len(raw_data[algo]['optimality_gaps']) > 0:
@@ -552,16 +701,16 @@ def plot_knapsack_runtime_quality(results_dir: str, output_file: str):
     if not scatter_data:
         return
     
-    import pandas as pd
     df = pd.DataFrame(scatter_data)
     
     fig, ax = plt.subplots(figsize=(10, 6))
     
     for algo in ['FA', 'GA', 'SA', 'HC']:
         df_algo = df[df['Algorithm'] == algo]
-        ax.scatter(df_algo['Time'], df_algo['Gap'], 
-                  label=algo, color=COLORS[algo], marker=MARKERS[algo],
-                  s=50, alpha=0.6, edgecolors='black', linewidth=0.5)
+        if not df_algo.empty:
+            ax.scatter(df_algo['Time'], df_algo['Gap'], 
+                      label=algo, color=COLORS[algo], marker=MARKERS[algo],
+                      s=50, alpha=0.6, edgecolors='black', linewidth=0.5)
     
     ax.set_xlabel('Elapsed Time (seconds)', fontsize=12)
     ax.set_ylabel('Optimality Gap (%)', fontsize=12)
@@ -574,7 +723,7 @@ def plot_knapsack_runtime_quality(results_dir: str, output_file: str):
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"Knapsack runtime-quality plot saved: {output_file}")
+    print(f"✓ Saved: {output_file}")
 
 
 # ============================================================================
@@ -582,7 +731,6 @@ def plot_knapsack_runtime_quality(results_dir: str, output_file: str):
 # ============================================================================
 
 def generate_all_plots(results_dir: str = 'benchmark/results',
-                      knapsack_dir: str = 'benchmark/results',
                       output_dir: str = 'benchmark/results/plots'):
     """Generate all academic-grade visualization plots."""
     
@@ -598,7 +746,7 @@ def generate_all_plots(results_dir: str = 'benchmark/results',
     configs = ['quick_convergence', 'multimodal_escape', 'scalability']
     
     for config_name in configs:
-        print(f"\n  Processing {config_name}...")
+        print(f"\nProcessing {config_name}...")
         
         plot_rastrigin_convergence(
             results_dir, config_name,
@@ -615,7 +763,7 @@ def generate_all_plots(results_dir: str = 'benchmark/results',
             str(output_path / f'rastrigin_{config_name}_ecdf.png')
         )
     
-    print("\n  Generating Rastrigin scalability plot...")
+    print("\nGenerating Rastrigin scalability plot...")
     plot_rastrigin_scalability(
         results_dir,
         str(output_path / 'rastrigin_scalability.png')
@@ -624,59 +772,55 @@ def generate_all_plots(results_dir: str = 'benchmark/results',
     # KNAPSACK PLOTS
     print("\n[KNAPSACK BENCHMARKS]")
     
-    if not Path(knapsack_dir).exists():
-        print(f"  Warning: Knapsack directory not found: {knapsack_dir}")
+    configs = discover_knapsack_configs(results_dir)
+    
+    if not configs:
+        print("Warning: No knapsack results found")
     else:
-        sizes = [50, 100, 200]
-        instance_types = ['uncorrelated', 'weakly_correlated', 
-                         'strongly_correlated', 'subset_sum']
-        seeds = [42, 43]
+        print(f"Found {len(configs)} knapsack configurations")
         
         # Per-instance plots
-        for n_items in sizes:
-            for inst_type in instance_types:
-                if n_items == 200 and inst_type in ['strongly_correlated', 'subset_sum']:
-                    continue
-                
-                for seed in seeds:
-                    print(f"\n  Processing Knapsack n={n_items}, {inst_type}, seed={seed}...")
-                    
-                    prefix = f'knapsack_n{n_items}_{inst_type}_seed{seed}'
-                    
-                    plot_knapsack_convergence(
-                        knapsack_dir, n_items, inst_type, seed,
-                        str(output_path / f'{prefix}_convergence.png')
-                    )
-                    
-                    plot_knapsack_gap(
-                        knapsack_dir, n_items, inst_type, seed,
-                        str(output_path / f'{prefix}_gap_boxplot.png')
-                    )
+        for n_items, instance_type, seed in configs:
+            print(f"\nProcessing Knapsack n={n_items}, {instance_type}, seed={seed}...")
+            
+            prefix = f'knapsack_n{n_items}_{instance_type}_seed{seed}'
+            
+            plot_knapsack_convergence(
+                results_dir, n_items, instance_type, seed,
+                str(output_path / f'{prefix}_convergence.png')
+            )
+            
+            plot_knapsack_gap(
+                results_dir, n_items, instance_type, seed,
+                str(output_path / f'{prefix}_gap_boxplot.png')
+            )
         
         # Aggregate plots
-        print("\n  Generating Knapsack aggregate plots...")
+        print("\nGenerating Knapsack aggregate plots...")
         
-        plot_knapsack_feasibility(
-            knapsack_dir,
+        plot_knapsack_aggregate_feasibility(
+            results_dir,
             str(output_path / 'knapsack_feasibility.png')
         )
         
-        plot_knapsack_capacity_utilization(
-            knapsack_dir,
+        plot_knapsack_aggregate_capacity(
+            results_dir,
             str(output_path / 'knapsack_capacity_utilization.png')
         )
         
         plot_knapsack_runtime_quality(
-            knapsack_dir,
+            results_dir,
             str(output_path / 'knapsack_runtime_quality.png')
         )
         
-        # Scalability plots
-        for inst_type in ['uncorrelated', 'weakly_correlated']:
-            for seed in seeds:
+        # Scalability plots (for instance types with multiple sizes)
+        instance_types_seeds = set((t, s) for _, t, s in configs)
+        for instance_type, seed in instance_types_seeds:
+            sizes_for_type = [n for n, t, s in configs if t == instance_type and s == seed]
+            if len(sizes_for_type) > 1:  # Only if multiple sizes exist
                 plot_knapsack_scalability(
-                    knapsack_dir, inst_type, seed,
-                    str(output_path / f'knapsack_{inst_type}_seed{seed}_scalability.png')
+                    results_dir, instance_type, seed,
+                    str(output_path / f'knapsack_{instance_type}_seed{seed}_scalability.png')
                 )
     
     print("\n" + "=" * 80)
@@ -688,16 +832,19 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description='Generate academic-grade benchmark visualizations')
-    parser.add_argument('--rastrigin-dir', type=str,
+    parser.add_argument('--results-dir', type=str,
                         default='benchmark/results',
-                        help='Rastrigin results directory')
-    parser.add_argument('--knapsack-dir', type=str,
-                        default='benchmark/results',
-                        help='Knapsack results directory')
+                        help='Results directory (contains rastrigin/ and knapsack/)')
     parser.add_argument('--output-dir', type=str,
                         default='benchmark/results/plots',
                         help='Output directory for plots')
+    parser.add_argument('--problem', type=str, choices=['all', 'rastrigin', 'knapsack'],
+                        default='all',
+                        help='Which problem to visualize')
     
     args = parser.parse_args()
     
-    generate_all_plots(args.rastrigin_dir, args.knapsack_dir, args.output_dir)
+    if args.problem in ['all', 'rastrigin', 'knapsack']:
+        generate_all_plots(args.results_dir, args.output_dir)
+    else:
+        generate_all_plots(args.results_dir, args.output_dir)
