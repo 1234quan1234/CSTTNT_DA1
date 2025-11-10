@@ -1,0 +1,13 @@
+# Benchmark results (keep structure, ignore data)
+benchmark/results/*.json
+benchmark/results/plots/*.png
+benchmark/results/plots/*.pdf
+benchmark/results/summaries/*.csv
+benchmark/results/summaries/*.txt
+benchmark/results/logs/*.log
+
+# But keep directory markers
+!benchmark/results/.gitkeep
+!benchmark/results/plots/.gitkeep
+!benchmark/results/summaries/.gitkeep
+!benchmark/results/logs/.gitkeep

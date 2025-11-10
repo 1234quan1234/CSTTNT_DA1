@@ -1,0 +1,21 @@
+BENCHMARK RUN SUMMARY
+====================
+
+Timestamp: Thứ hai, 10 Tháng 11 năm 2025 09:01:05 +07
+Total duration: 0h 0m 10s
+
+Scenarios run: 6
+Successful: 0
+Failed: 6
+
+Failed scenarios:
+  ✗ rastrigin_quick
+  ✗ rastrigin_multimodal
+  ✗ rastrigin_scalability
+  ✗ knapsack_small
+  ✗ knapsack_medium
+  ✗ knapsack_large
+
+Results location: /home/bui-anh-quan/CSTTNT_DA1/benchmark/results
+Logs location: /home/bui-anh-quan/CSTTNT_DA1/benchmark/results/logs
+Main log: /home/bui-anh-quan/CSTTNT_DA1/benchmark/results/logs/benchmark_run_20251110_090055.log

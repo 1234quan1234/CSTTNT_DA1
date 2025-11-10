@@ -581,8 +581,8 @@ def plot_knapsack_runtime_quality(results_dir: str, output_file: str):
 # MASTER GENERATION FUNCTION
 # ============================================================================
 
-def generate_all_plots(results_dir: str = 'benchmark/results/rastrigin',
-                      knapsack_dir: str = 'benchmark/results/knapsack',
+def generate_all_plots(results_dir: str = 'benchmark/results',
+                      knapsack_dir: str = 'benchmark/results',
                       output_dir: str = 'benchmark/results/plots'):
     """Generate all academic-grade visualization plots."""
     
@@ -689,10 +689,10 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Generate academic-grade benchmark visualizations')
     parser.add_argument('--rastrigin-dir', type=str,
-                        default='benchmark/results/rastrigin',
+                        default='benchmark/results',
                         help='Rastrigin results directory')
     parser.add_argument('--knapsack-dir', type=str,
-                        default='benchmark/results/knapsack',
+                        default='benchmark/results',
                         help='Knapsack results directory')
     parser.add_argument('--output-dir', type=str,
                         default='benchmark/results/plots',

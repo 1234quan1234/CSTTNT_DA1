@@ -104,7 +104,7 @@ def run_single_knapsack_experiment(algo_name, problem, params, seed, max_iter):
     }
 
 
-def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='benchmark/results/knapsack', n_jobs=None, config_name=None):
+def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='benchmark/results', n_jobs=None, config_name=None):
     """
     Run Knapsack benchmark with parallel execution.
     
@@ -115,7 +115,7 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
     instance_type : str
         Instance type
     output_dir : str
-        Output directory
+        Output directory (default: benchmark/results)
     n_jobs : int, optional
         Number of parallel jobs
     config_name : str, optional
@@ -140,12 +140,17 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
     if instance_type != 'all':
         all_configs = [c for c in all_configs if c.instance_type == instance_type]
     
+    # Generate timestamp for this run (ISO 8601 format)
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+    
     print(f"=" * 70)
     print(f"Knapsack Benchmark")
     print(f"=" * 70)
     print(f"Total configurations: {len(all_configs)}")
     print(f"Runs per config: 30")
     print(f"Total experiments: {len(all_configs) * 4 * 30}")
+    print(f"Timestamp: {timestamp}")
     
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -211,21 +216,30 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
                     result['dp_optimal_value'] = float(dp_optimal_value)
                     result['optimality_gap'] = float((dp_optimal_value - result['best_value']) / dp_optimal_value * 100)
             
-            # Save results
-            filename = f"n{config.n_items}_{config.instance_type}_seed{config.seed}_{algo_name}.json"
+            # New naming: knapsack_n{size}_{type}_seed{seed}_{algo}_{timestamp}.json
+            filename = f"knapsack_n{config.n_items}_{config.instance_type}_seed{config.seed}_{algo_name}_{timestamp}.json"
             result_file = output_path / filename
             
+            # Add metadata
+            output_data = {
+                'metadata': {
+                    'problem': 'knapsack',
+                    'n_items': int(config.n_items),
+                    'instance_type': str(config.instance_type),
+                    'instance_seed': int(config.seed),
+                    'algorithm': algo_name,
+                    'timestamp': timestamp,
+                    'budget': int(config.budget),
+                    'dp_optimal': float(dp_optimal_value) if dp_optimal_value is not None else None,
+                    'has_dp_optimal': config.has_dp_optimal
+                },
+                'results': results
+            }
+            
             with open(result_file, 'w') as f:
-                json.dump({
-                    'config': {
-                        'n_items': int(config.n_items),
-                        'instance_type': str(config.instance_type),
-                        'instance_seed': int(config.seed),
-                        'budget': int(config.budget),
-                        'dp_optimal': float(dp_optimal_value) if dp_optimal_value is not None else None
-                    },
-                    'results': results
-                }, f, indent=2)
+                json.dump(output_data, f, indent=2)
+            
+            print(f"  Saved: {filename}")
             
             # Print summary
             values_list = [r['best_value'] for r in results]
@@ -258,11 +272,13 @@ if __name__ == "__main__":
     parser.add_argument('--type', type=str, default='all',
                         choices=['all', 'uncorrelated', 'weakly', 'strongly', 'subset'],
                         help='Instance type')
-    parser.add_argument('--output', type=str, default='benchmark/results/knapsack',
+    parser.add_argument('--output', type=str, default='benchmark/results',
                         help='Output directory')
+    parser.add_argument('--jobs', type=int, default=None,
+                        help='Number of parallel jobs (default: CPU count - 1)')
     
     args = parser.parse_args()
     
     size = 'all' if args.size == 'all' else int(args.size)
     
-    run_knapsack_benchmark(size=size, instance_type=args.type, output_dir=args.output)
+    run_knapsack_benchmark(size=size, instance_type=args.type, output_dir=args.output, n_jobs=args.jobs)

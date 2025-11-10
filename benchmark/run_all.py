@@ -62,7 +62,8 @@ def run_all_benchmarks(output_dir='benchmark/results', configs=None, n_jobs=None
             try:
                 run_knapsack_benchmark(
                     config_name=config,
-                    output_dir=f"{output_dir}/knapsack"
+                    output_dir=f"{output_dir}/knapsack",
+                    n_jobs=n_jobs
                 )
                 results_summary[f'knapsack_{config}'] = 'SUCCESS'
             except Exception as e:
@@ -108,27 +109,6 @@ if __name__ == "__main__":
         # Default: medium suite
         configs = {
             'rastrigin': ['quick_convergence', 'multimodal_escape'],
-            'knapsack': ['small', 'medium']
-        }
-    
-    run_all_benchmarks(output_dir=args.output, configs=configs, n_jobs=args.jobs)
-    if args.quick:
-        configs = {
-            'rastrigin': ['quick_convergence'],
-            'tsp': ['small'],
-            'knapsack': ['small']
-        }
-    elif args.full:
-        configs = {
-            'rastrigin': ['quick_convergence', 'multimodal_escape', 'scalability'],
-            'tsp': ['small', 'medium', 'large'],
-            'knapsack': ['small', 'medium', 'large']
-        }
-    else:
-        # Default: medium suite
-        configs = {
-            'rastrigin': ['quick_convergence', 'multimodal_escape'],
-            'tsp': ['small', 'medium'],
             'knapsack': ['small', 'medium']
         }
     

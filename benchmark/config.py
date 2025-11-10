@@ -3,23 +3,142 @@ Benchmark configurations for Rastrigin and Knapsack problems.
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any
-import numpy as np
+from typing import Dict, List
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def validate_ranges(params: Dict, param_name: str) -> bool:
+    """
+    Validate parameter ranges.
+    
+    Parameters
+    ----------
+    params : dict
+        Parameter dictionary
+    param_name : str
+        Parameter name for logging
+        
+    Returns
+    -------
+    bool
+        True if valid
+        
+    Raises
+    ------
+    ValueError
+        If validation fails
+    """
+    # Check positive values
+    positive_params = ['n_fireflies', 'pop_size', 'n_neighbors', 'restart_after']
+    for key in positive_params:
+        if key in params and params[key] <= 0:
+            raise ValueError(f"{param_name}.{key} must be > 0, got {params[key]}")
+    
+    # Check probability ranges [0, 1]
+    prob_params = ['alpha', 'beta0', 'gamma', 'alpha_flip', 'crossover_rate', 'mutation_rate']
+    for key in prob_params:
+        if key in params:
+            if not (0 <= params[key] <= 1):
+                raise ValueError(f"{param_name}.{key} must be in [0, 1], got {params[key]}")
+    
+    # Check temperature
+    if 'T0' in params and params['T0'] <= 0:
+        raise ValueError(f"{param_name}.T0 must be > 0, got {params['T0']}")
+    
+    if 'cooling_rate' in params:
+        if not (0 < params['cooling_rate'] < 1):
+            raise ValueError(f"{param_name}.cooling_rate must be in (0, 1), got {params['cooling_rate']}")
+    
+    logger.debug(f"Parameters validated: {param_name}")
+    return True
+
+
+def validate_paths(output_dir: str = 'benchmark/results') -> bool:
+    """
+    Validate that output directories are writable.
+    
+    Parameters
+    ----------
+    output_dir : str
+        Output directory path
+        
+    Returns
+    -------
+    bool
+        True if writable
+        
+    Raises
+    ------
+    PermissionError
+        If directory is not writable
+    """
+    from pathlib import Path
+    import os
+    
+    path = Path(output_dir)
+    
+    # Try to create directory
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except PermissionError as e:
+        logger.error(f"Cannot create directory {output_dir}: {e}")
+        raise PermissionError(f"Directory not writable: {output_dir}")
+    
+    # Check if writable
+    if not os.access(path, os.W_OK):
+        logger.error(f"Directory not writable: {output_dir}")
+        logger.info(f"  Suggestion: Run 'chmod u+w {output_dir}'")
+        raise PermissionError(f"Directory not writable: {output_dir}")
+    
+    logger.debug(f"Output directory validated: {output_dir}")
+    return True
 
 
 @dataclass
 class RastriginConfig:
     """Configuration for Rastrigin benchmark."""
-    name: str
     dim: int
     budget: int
     max_iter: int
     threshold: float
-    seeds: List[int]
-    fa_params: Dict[str, Any]
-    sa_params: Dict[str, Any]
-    hc_params: Dict[str, Any]
-    ga_params: Dict[str, Any]
+    seeds: range
+    fa_params: Dict
+    sa_params: Dict
+    hc_params: Dict
+    ga_params: Dict
+    
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        try:
+            # Validate dimensions
+            if self.dim <= 0:
+                raise ValueError(f"dim must be > 0, got {self.dim}")
+            
+            if self.budget <= 0:
+                raise ValueError(f"budget must be > 0, got {self.budget}")
+            
+            if self.max_iter < 10:
+                raise ValueError(f"max_iter must be >= 10, got {self.max_iter}")
+            
+            if self.threshold < 0:
+                raise ValueError(f"threshold must be >= 0, got {self.threshold}")
+            
+            if len(self.seeds) == 0:
+                raise ValueError("seeds cannot be empty")
+            
+            # Validate algorithm parameters
+            validate_ranges(self.fa_params, 'fa_params')
+            validate_ranges(self.sa_params, 'sa_params')
+            validate_ranges(self.hc_params, 'hc_params')
+            validate_ranges(self.ga_params, 'ga_params')
+            
+            logger.info(f"RastriginConfig validated: dim={self.dim}, budget={self.budget}")
+            
+        except ValueError as e:
+            logger.error(f"Invalid RastriginConfig: {e}")
+            raise
 
 
 @dataclass
@@ -29,17 +148,42 @@ class KnapsackConfig:
     instance_type: str
     seed: int
     budget: int
-    fa_params: Dict[str, Any]
-    sa_params: Dict[str, Any]
-    hc_params: Dict[str, Any]
-    ga_params: Dict[str, Any]
-    has_dp_optimal: bool = True
+    has_dp_optimal: bool
+    fa_params: Dict
+    sa_params: Dict
+    hc_params: Dict
+    ga_params: Dict
+    
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        try:
+            # Validate parameters
+            if self.n_items <= 0:
+                raise ValueError(f"n_items must be > 0, got {self.n_items}")
+            
+            valid_types = ['uncorrelated', 'weakly', 'strongly', 'subset']
+            if self.instance_type not in valid_types:
+                raise ValueError(f"instance_type must be one of {valid_types}, got {self.instance_type}")
+            
+            if self.budget <= 0:
+                raise ValueError(f"budget must be > 0, got {self.budget}")
+            
+            # Validate algorithm parameters
+            validate_ranges(self.fa_params, 'fa_params')
+            validate_ranges(self.sa_params, 'sa_params')
+            validate_ranges(self.hc_params, 'hc_params')
+            validate_ranges(self.ga_params, 'ga_params')
+            
+            logger.info(f"KnapsackConfig validated: n={self.n_items}, type={self.instance_type}")
+            
+        except ValueError as e:
+            logger.error(f"Invalid KnapsackConfig: {e}")
+            raise
 
 
 # Rastrigin Benchmark Configurations
 RASTRIGIN_CONFIGS = {
     'quick_convergence': RastriginConfig(
-        name='quick_convergence',
         dim=2,
         budget=3000,
         max_iter=100,
@@ -69,7 +213,6 @@ RASTRIGIN_CONFIGS = {
     ),
     
     'multimodal_escape': RastriginConfig(
-        name='multimodal_escape',
         dim=5,
         budget=10000,
         max_iter=200,
@@ -99,7 +242,6 @@ RASTRIGIN_CONFIGS = {
     ),
     
     'scalability': RastriginConfig(
-        name='scalability',
         dim=10,
         budget=30000,
         max_iter=300,
