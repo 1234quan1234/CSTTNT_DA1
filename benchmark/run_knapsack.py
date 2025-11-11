@@ -11,6 +11,7 @@ import json
 import time
 from pathlib import Path
 import multiprocessing as mp
+import logging
 
 from src.problems.discrete.knapsack import KnapsackProblem
 from src.swarm.fa import FireflyKnapsackOptimizer
@@ -20,6 +21,13 @@ from src.classical.genetic_algorithm import GeneticAlgorithmOptimizer
 
 from benchmark.config import get_knapsack_configs
 from benchmark.instance_generator import generate_knapsack_instance
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 def solve_knapsack_dp(values, weights, capacity):
@@ -63,8 +71,20 @@ def solve_knapsack_dp(values, weights, capacity):
     return optimal_value, selection
 
 
-def run_single_knapsack_experiment(algo_name, problem, params, seed, max_iter):
-    """Run single Knapsack experiment (for parallel execution)."""
+def run_single_knapsack_experiment(algo_name, problem, params, seed, max_iter, instance_seed):
+    """
+    Run single Knapsack experiment with status tracking.
+    
+    Parameters
+    ----------
+    instance_seed : int
+        Seed used for instance generation (for tracking)
+        
+    Returns
+    -------
+    dict
+        Result dict with status tracking (never None)
+    """
     import time
     import numpy as np
     from src.swarm.fa import FireflyKnapsackOptimizer
@@ -79,41 +99,128 @@ def run_single_knapsack_experiment(algo_name, problem, params, seed, max_iter):
         'GA': GeneticAlgorithmOptimizer
     }
     
-    optimizer = algo_map[algo_name](problem=problem, seed=seed, **params)
-    
-    start_time = time.time()
-    best_sol, best_fitness, history, _ = optimizer.run(max_iter=max_iter)
-    elapsed = time.time() - start_time
-    
-    total_value = -best_fitness
-    total_weight = np.sum(best_sol * problem.weights)
-    is_feasible = bool(total_weight <= problem.capacity)
-    
-    # Calculate actual evaluations (THÊM MỚI)
-    if algo_name in ['FA', 'GA']:  # Population-based
-        pop_size = params.get('n_fireflies') or params.get('pop_size', 1)
-        actual_evaluations = len(history) * pop_size
-        budget = max_iter * pop_size
-    else:  # Single-solution (SA, HC)
-        actual_evaluations = len(history)
-        budget = max_iter
-    
-    return {
+    # Base result structure
+    base_result = {
         'algorithm': algo_name,
-        'seed': int(seed),
-        'best_value': float(total_value),
-        'best_fitness': float(best_fitness),
-        'total_weight': float(total_weight),
+        'seed': seed,
+        'algo_seed': seed,
+        'instance_seed': instance_seed,
+        'best_value': None,
+        'best_fitness': None,
+        'total_weight': None,
         'capacity': float(problem.capacity),
-        'is_feasible': is_feasible,
-        'history': [float(h) for h in history],
-        'elapsed_time': float(elapsed),
-        'items_selected': int(np.sum(best_sol)),
-        'capacity_utilization': float(total_weight / problem.capacity),
-        'evaluations': int(actual_evaluations),  # NEW
-        'budget': int(budget),  # NEW
-        'budget_utilization': float(actual_evaluations / budget)  # NEW
+        'is_feasible': False,
+        'history': [],
+        'elapsed_time': 0.0,
+        'items_selected': 0,
+        'capacity_utilization': 0.0,
+        'evaluations': 0,
+        'budget': 0,
+        'budget_utilization': 0.0,
+        'status': 'error',
+        'error_type': None,
+        'error_msg': None
     }
+    
+    if algo_name not in algo_map:
+        logger.error(f"Unknown algorithm: {algo_name}")
+        base_result.update({
+            'status': 'error',
+            'error_type': 'UnknownAlgorithm',
+            'error_msg': f'Unknown algorithm: {algo_name}'
+        })
+        return base_result
+    
+    try:
+        # Explicit per-worker RNG seeding
+        rng = np.random.default_rng(seed)
+        np.random.seed(seed)  # Fallback for code using global np.random
+        
+        optimizer = algo_map[algo_name](problem=problem, seed=seed, **params)
+        
+        start_time = time.time()
+        best_sol, best_fitness, history, _ = optimizer.run(max_iter=max_iter)
+        elapsed = time.time() - start_time
+        
+        # Validate results
+        if not isinstance(history, list) or len(history) == 0:
+            logger.warning(f"{algo_name} seed={seed}: Empty history")
+            base_result.update({
+                'status': 'invalid_history',
+                'error_type': 'EmptyHistory',
+                'error_msg': 'History is empty or invalid',
+                'elapsed_time': float(elapsed)
+            })
+            return base_result
+        
+        # Check for invalid fitness
+        if np.isnan(best_fitness) or np.isinf(best_fitness):
+            logger.warning(f"{algo_name} seed={seed}: Invalid fitness value: {best_fitness}")
+            base_result.update({
+                'status': 'nan',
+                'error_type': 'InvalidFitness',
+                'error_msg': f'NaN or Inf fitness: {best_fitness}',
+                'elapsed_time': float(elapsed),
+                'history': [float(h) if not (np.isnan(h) or np.isinf(h)) else None for h in history]
+            })
+            return base_result
+        
+        total_value = -best_fitness
+        total_weight = np.sum(best_sol * problem.weights)
+        is_feasible = bool(total_weight <= problem.capacity)
+        
+        # Calculate actual evaluations
+        if algo_name in ['FA', 'GA']:  # Population-based
+            pop_size = params.get('n_fireflies') or params.get('pop_size', 1)
+            actual_evaluations = len(history) * pop_size
+            budget = max_iter * pop_size
+        else:  # Single-solution (SA, HC)
+            actual_evaluations = len(history)
+            budget = max_iter
+        
+        # Success case
+        base_result.update({
+            'status': 'ok',
+            'best_value': float(total_value),
+            'best_fitness': float(best_fitness),
+            'total_weight': float(total_weight),
+            'is_feasible': is_feasible,
+            'history': [float(h) for h in history],
+            'elapsed_time': float(elapsed),
+            'items_selected': int(np.sum(best_sol)),
+            'capacity_utilization': float(total_weight / problem.capacity),
+            'evaluations': int(actual_evaluations),
+            'budget': int(budget),
+            'budget_utilization': float(actual_evaluations / budget),
+            'error_type': None,
+            'error_msg': None
+        })
+        return base_result
+        
+    except (FloatingPointError, OverflowError) as e:
+        logger.error(f"{algo_name} seed={seed}: Numerical error: {e}")
+        base_result.update({
+            'status': 'numerical_error',
+            'error_type': type(e).__name__,
+            'error_msg': str(e)
+        })
+        return base_result
+    except MemoryError as e:
+        logger.error(f"{algo_name} seed={seed}: Out of memory")
+        base_result.update({
+            'status': 'memory',
+            'error_type': 'MemoryError',
+            'error_msg': 'Out of memory'
+        })
+        return base_result
+    except Exception as e:
+        logger.error(f"{algo_name} seed={seed}: {type(e).__name__}: {e}")
+        base_result.update({
+            'status': 'error',
+            'error_type': type(e).__name__,
+            'error_msg': str(e)
+        })
+        return base_result
 
 
 def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='benchmark/results', n_jobs=None, config_name=None):
@@ -175,7 +282,7 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
         print(f"Configuration {config_idx}/{len(all_configs)}")
         print(f"  n_items: {config.n_items}")
         print(f"  type: {config.instance_type}")
-        print(f"  seed: {config.seed}")
+        print(f"  instance_seed: {config.seed}")
         print(f"  budget: {config.budget}")
         print(f"{'-' * 70}")
         
@@ -212,7 +319,7 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
         for algo_name, (algo_params, max_iter) in algorithms.items():
             print(f"\nRunning {algo_name} ({len(seeds)} runs in parallel)...")
             
-            # Extract pop_size for metadata (THÊM MỚI)
+            # Extract pop_size for metadata
             if algo_name == 'FA':
                 pop_size = algo_params['n_fireflies']
             elif algo_name == 'GA':
@@ -220,33 +327,53 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
             else:
                 pop_size = 1
             
-            # Prepare arguments for parallel execution
+            # Prepare arguments for parallel execution (NOW includes instance_seed)
             args_list = [
-                (algo_name, problem, algo_params, seed, max_iter)
+                (algo_name, problem, algo_params, seed, max_iter, config.seed)
                 for seed in seeds
             ]
             
             # Run in parallel
-            with mp.Pool(processes=n_jobs) as pool:
-                results = pool.starmap(run_single_knapsack_experiment, args_list)
+            try:
+                with mp.Pool(processes=n_jobs) as pool:
+                    all_results = pool.starmap(run_single_knapsack_experiment, args_list)
+            except Exception as e:
+                logger.error(f"Parallel execution failed for {algo_name}: {e}")
+                continue
             
-            # Add DP optimal gap if available (CHỈ THÊM optimality_gap, KHÔNG thêm dp_optimal_value vào mỗi result)
-            gap_results = results
+            # Separate successful and failed results
+            successful_results = [r for r in all_results if r['status'] == 'ok']
+            failed_results = [r for r in all_results if r['status'] != 'ok']
+            
+            # Status breakdown
+            status_counts = {}
+            for r in all_results:
+                status = r['status']
+                status_counts[status] = status_counts.get(status, 0) + 1
+            
+            # Add DP optimal gap if available (only for successful results)
+            gap_results = all_results.copy()
             if dp_optimal_value is not None:
-                gap_results = []
-                for result in results:
-                    r = result.copy()
-                    r['optimality_gap'] = float((dp_optimal_value - result['best_value']) / dp_optimal_value * 100)
-                    gap_results.append(r)
+                for r in gap_results:
+                    if r['status'] == 'ok' and r['best_value'] is not None:
+                        r['optimality_gap'] = float((dp_optimal_value - r['best_value']) / dp_optimal_value * 100)
+                    else:
+                        r['optimality_gap'] = None
             
-            # Calculate average budget utilization (THÊM MỚI)
-            avg_budget_util = np.mean([r['budget_utilization'] for r in results])
+            # Calculate average budget utilization (only for successful runs)
+            avg_budget_util = np.mean([r['budget_utilization'] for r in successful_results]) if successful_results else 0.0
+            
+            if len(failed_results) > 0:
+                logger.warning(f"{algo_name}: {len(failed_results)}/{len(seeds)} runs failed")
+            
+            if len(successful_results) == 0:
+                logger.error(f"{algo_name}: All runs failed, but still saving results")
             
             # New naming: knapsack_n{size}_{type}_seed{seed}_{algo}_{timestamp}.json
             filename = f"knapsack_n{config.n_items}_{config.instance_type}_seed{config.seed}_{algo_name}_{timestamp}.json"
             result_file = output_path / filename
             
-            # Add metadata (ĐÃ THÊM max_iter, pop_size, avg_budget_utilization)
+            # Add metadata (includes instance_seed and status breakdown)
             output_data = {
                 'metadata': {
                     'problem': 'knapsack',
@@ -256,13 +383,17 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
                     'algorithm': algo_name,
                     'timestamp': timestamp,
                     'budget': int(config.budget),
-                    'max_iter': int(max_iter),  # NEW: thêm max_iter
-                    'pop_size': int(pop_size),  # NEW: thêm pop_size
-                    'dp_optimal': float(dp_optimal_value) if dp_optimal_value is not None else None,  # CHỈ Ở ĐÂY
+                    'max_iter': int(max_iter),
+                    'pop_size': int(pop_size),
+                    'dp_optimal': float(dp_optimal_value) if dp_optimal_value is not None else None,
                     'has_dp_optimal': config.has_dp_optimal,
-                    'avg_budget_utilization': float(avg_budget_util)  # NEW: thêm avg utilization
+                    'n_runs': len(seeds),
+                    'n_successful': len(successful_results),
+                    'n_failed': len(failed_results),
+                    'status_breakdown': status_counts,
+                    'avg_budget_utilization': float(avg_budget_util)
                 },
-                'results': gap_results  # ĐÃ CÓ evaluations, budget, budget_utilization trong mỗi run
+                'all_results': gap_results  # All results including failed ones
             }
             
             with open(result_file, 'w') as f:
@@ -270,23 +401,29 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
             
             print(f"  Saved: {filename}")
             
-            # Print summary (ĐÃ THÊM budget utilization)
-            values_list = [r['best_value'] for r in results]
-            feasible_count = sum(1 for r in results if r['is_feasible'])
+            # Print summary (includes status breakdown)
+            if successful_results:
+                values_list = [r['best_value'] for r in successful_results]
+                feasible_count = sum(1 for r in successful_results if r['is_feasible'])
+                
+                print(f"\n    Summary for {algo_name}:")
+                print(f"      Mean ± Std: {np.mean(values_list):.2f} ± {np.std(values_list):.2f}")
+                print(f"      Median: {np.median(values_list):.2f}")
+                print(f"      Best: {np.max(values_list):.2f}")
+                print(f"      Worst: {np.min(values_list):.2f}")
+                print(f"      Feasibility: {feasible_count}/{len(successful_results)} ({feasible_count/len(successful_results)*100:.1f}%)")
+                
+                if dp_optimal_value is not None:
+                    gaps = [r['optimality_gap'] for r in gap_results if r['status'] == 'ok' and r['optimality_gap'] is not None]
+                    if gaps:
+                        print(f"      Avg gap: {np.mean(gaps):.2f}%")
+                
+                print(f"      Avg time: {np.mean([r['elapsed_time'] for r in successful_results]):.2f}s")
+                print(f"      Budget util: {avg_budget_util:.2%}")
             
-            print(f"\n    Summary for {algo_name}:")
-            print(f"      Mean ± Std: {np.mean(values_list):.2f} ± {np.std(values_list):.2f}")
-            print(f"      Median: {np.median(values_list):.2f}")
-            print(f"      Best: {np.max(values_list):.2f}")
-            print(f"      Worst: {np.min(values_list):.2f}")
-            print(f"      Feasibility: {feasible_count}/30 ({feasible_count/30*100:.1f}%)")
-            
-            if dp_optimal_value is not None:
-                gaps = [r['optimality_gap'] for r in gap_results]
-                print(f"      Avg gap: {np.mean(gaps):.2f}%")
-            
-            print(f"      Avg time: {np.mean([r['elapsed_time'] for r in results]):.2f}s")
-            print(f"      Budget util: {avg_budget_util:.2%}")  # NEW: in budget utilization
+            # Status breakdown
+            status_str = ", ".join([f"{count} {status}" for status, count in status_counts.items()])
+            print(f"    Status breakdown: {status_str}")
     
     print(f"\n{'=' * 70}")
     print(f"Knapsack benchmark complete! Results saved to: {output_path}")

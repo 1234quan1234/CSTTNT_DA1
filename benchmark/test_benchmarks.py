@@ -1,5 +1,6 @@
 """
 Test suite for benchmarks - verify all components work correctly.
+Includes validation for new metadata/status tracking features.
 """
 
 import sys
@@ -36,7 +37,17 @@ def find_result_files(output_dir, config_name, algo_name):
 
 
 def validate_result_file(filepath, expected_config, expected_algo, expected_dim, expected_budget):
-    """Validate a single result file."""
+    """
+    Validate a single result file.
+    
+    Checks:
+    - JSON structure (metadata + all_results)
+    - Required metadata fields
+    - Status tracking (ok/timeout/nan/numerical_error)
+    - Budget utilization (should be ±5% of 1.0)
+    - All required fields in each run
+    - No NaN/Inf in convergence history
+    """
     with open(filepath, 'r') as f:
         data = json.load(f)
     
@@ -44,6 +55,7 @@ def validate_result_file(filepath, expected_config, expected_algo, expected_dim,
     assert 'metadata' in data, f"Missing metadata in {filepath}"
     assert 'results' in data, f"Missing results in {filepath}"
     
+    # Validate metadata
     metadata = data['metadata']
     
     # Validate metadata
@@ -54,14 +66,25 @@ def validate_result_file(filepath, expected_config, expected_algo, expected_dim,
     assert metadata['dimension'] == expected_dim, \
         f"Dimension mismatch: expected {expected_dim}, got {metadata['dimension']}"
     
+    # Validate status breakdown
+    assert 'status_breakdown' in metadata, "Missing status_breakdown in metadata"
+    status_counts = metadata['status_breakdown']
+    assert isinstance(status_counts, dict), "status_breakdown must be dict"
+    assert sum(status_counts.values()) == len(data['all_results']), \
+        "status_breakdown counts don't match results"
+    
     # Validate results
     results = data['results']
     assert len(results) > 0, f"No results in {filepath}"
     
-    for i, result in enumerate(results):
-        # Check required fields
-        required_fields = ['algorithm', 'seed', 'best_fitness', 'history', 
-                          'actual_evaluations', 'budget', 'budget_utilization']
+    for i, result in enumerate(data['all_results']):
+        # Check required fields including NEW ones
+        required_fields = [
+            'algorithm', 'seed', 'best_fitness', 'history', 
+            'evaluations', 'budget', 'budget_utilization',
+            'status', 'error_type', 'error_msg',  # NEW tracking fields
+            'hit_evaluations'  # NEW hitting time field
+        ]
         for field in required_fields:
             assert field in result, f"Missing field '{field}' in result {i}"
         
@@ -87,6 +110,24 @@ def validate_result_file(filepath, expected_config, expected_algo, expected_dim,
         fitness = result['best_fitness']
         assert fitness == fitness and fitness != float('inf') and fitness != float('-inf'), \
             f"Run {i}: Invalid best_fitness {fitness}"
+        
+        # Validate status field (NEW)
+        valid_statuses = ['ok', 'timeout', 'nan', 'numerical_error', 'memory', 'invalid_history']
+        assert result['status'] in valid_statuses, \
+            f"Run {i}: Invalid status '{result['status']}'"
+        
+        # If status is 'ok', error_type and error_msg should be null
+        if result['status'] == 'ok':
+            assert result['error_type'] is None, \
+                f"Run {i}: Status is 'ok' but error_type is '{result['error_type']}'"
+            assert result['error_msg'] is None, \
+                f"Run {i}: Status is 'ok' but error_msg is present"
+        else:
+            # If status is not 'ok', should have error info
+            assert result['error_type'] is not None, \
+                f"Run {i}: Status is '{result['status']}' but error_type is null"
+            assert isinstance(result['error_msg'], str), \
+                f"Run {i}: error_msg should be string, got {type(result['error_msg'])}"
 
 
 class TestRastriginBenchmark:

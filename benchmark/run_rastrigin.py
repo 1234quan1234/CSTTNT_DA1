@@ -147,12 +147,14 @@ def atomic_json_write(data: dict, output_file: Path):
         raise
 
 
-def run_single_experiment_safe(algo_name, problem, params, seed, max_iter, threshold, timeout_seconds=300):
+def run_single_experiment_safe(algo_name, problem, params, seed, max_iter, threshold, problem_seed, timeout_seconds=300):
     """
     Run single experiment with timeout and error handling.
     
     Parameters
     ----------
+    problem_seed : int
+        Seed used for problem initialization (for tracking)
     threshold : float
         Success threshold for tracking convergence
     timeout_seconds : int
@@ -160,8 +162,8 @@ def run_single_experiment_safe(algo_name, problem, params, seed, max_iter, thres
         
     Returns
     -------
-    dict or None
-        Result dict, or None if failed
+    dict
+        Result dict with status tracking (never None)
     """
     import time
     from src.swarm.fa import FireflyContinuousOptimizer
@@ -176,11 +178,39 @@ def run_single_experiment_safe(algo_name, problem, params, seed, max_iter, thres
         'GA': GeneticAlgorithmOptimizer
     }
     
+    # Base result structure
+    base_result = {
+        'algorithm': algo_name,
+        'seed': seed,
+        'algo_seed': seed,
+        'problem_seed': problem_seed,
+        'best_fitness': None,
+        'history': [],
+        'elapsed_time': 0.0,
+        'evaluations': 0,
+        'budget': 0,
+        'budget_utilization': 0.0,
+        'success': False,
+        'hit_evaluations': None,
+        'status': 'error',
+        'error_type': None,
+        'error_msg': None
+    }
+    
     if algo_name not in algo_map:
         logger.error(f"Unknown algorithm: {algo_name}")
-        return None
+        base_result.update({
+            'status': 'error',
+            'error_type': 'UnknownAlgorithm',
+            'error_msg': f'Unknown algorithm: {algo_name}'
+        })
+        return base_result
     
     try:
+        # Explicit per-worker RNG seeding
+        rng = np.random.default_rng(seed)
+        np.random.seed(seed)  # Fallback for code using global np.random
+        
         optimizer = algo_map[algo_name](problem=problem, seed=seed, **params)
         
         # Set timeout (Unix-like systems only)
@@ -199,12 +229,25 @@ def run_single_experiment_safe(algo_name, problem, params, seed, max_iter, thres
         # Validate results
         if not isinstance(history, list) or len(history) == 0:
             logger.warning(f"{algo_name} seed={seed}: Empty history")
-            return None
+            base_result.update({
+                'status': 'invalid_history',
+                'error_type': 'EmptyHistory',
+                'error_msg': 'History is empty or invalid',
+                'elapsed_time': float(elapsed)
+            })
+            return base_result
         
         # Check for invalid values
         if np.isnan(best_fitness) or np.isinf(best_fitness):
             logger.warning(f"{algo_name} seed={seed}: Invalid fitness value: {best_fitness}")
-            return None
+            base_result.update({
+                'status': 'nan',
+                'error_type': 'InvalidFitness',
+                'error_msg': f'NaN or Inf fitness: {best_fitness}',
+                'elapsed_time': float(elapsed),
+                'history': [float(h) if not (np.isnan(h) or np.isinf(h)) else None for h in history]
+            })
+            return base_result
         
         # Calculate actual evaluations based on algorithm type
         if algo_name in ['FA', 'GA']:  # Population-based
@@ -230,9 +273,9 @@ def run_single_experiment_safe(algo_name, problem, params, seed, max_iter, thres
                         hit_evaluations = i + 1
                     break
         
-        return {
-            'algorithm': algo_name,
-            'seed': seed,
+        # Success case
+        base_result.update({
+            'status': 'ok',
             'best_fitness': float(best_fitness),
             'history': [float(h) for h in history],
             'elapsed_time': float(elapsed),
@@ -240,25 +283,48 @@ def run_single_experiment_safe(algo_name, problem, params, seed, max_iter, thres
             'budget': int(budget),
             'budget_utilization': float(actual_evaluations / budget),
             'success': success,
-            'hit_evaluations': int(hit_evaluations) if hit_evaluations is not None else None
-        }
+            'hit_evaluations': int(hit_evaluations) if hit_evaluations is not None else None,
+            'error_type': None,
+            'error_msg': None
+        })
+        return base_result
         
     except TimeoutException:
         logger.error(f"{algo_name} seed={seed}: Timed out after {timeout_seconds}s")
         if hasattr(signal, 'SIGALRM'):
             signal.alarm(0)
-        return None
+        base_result.update({
+            'status': 'timeout',
+            'error_type': 'TimeoutException',
+            'error_msg': f'Timed out after {timeout_seconds}s'
+        })
+        return base_result
     except (FloatingPointError, OverflowError) as e:
         logger.error(f"{algo_name} seed={seed}: Numerical error: {e}")
         logger.info(f"  Suggestion: Check algorithm parameters (alpha, beta, temperature)")
-        return None
-    except MemoryError:
+        base_result.update({
+            'status': 'numerical_error',
+            'error_type': type(e).__name__,
+            'error_msg': str(e)
+        })
+        return base_result
+    except MemoryError as e:
         logger.error(f"{algo_name} seed={seed}: Out of memory")
         logger.info(f"  Suggestion: Reduce population size or problem dimension")
-        return None
+        base_result.update({
+            'status': 'memory',
+            'error_type': 'MemoryError',
+            'error_msg': 'Out of memory'
+        })
+        return base_result
     except Exception as e:
         logger.error(f"{algo_name} seed={seed}: {type(e).__name__}: {e}")
-        return None
+        base_result.update({
+            'status': 'error',
+            'error_type': type(e).__name__,
+            'error_msg': str(e)
+        })
+        return base_result
     finally:
         if hasattr(signal, 'SIGALRM'):
             signal.alarm(0)
@@ -291,6 +357,9 @@ def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchma
         logger.error(f"Invalid configuration: {e}")
         return
     
+    # Extract problem_seed from config (use first seed as problem seed, or separate field if available)
+    problem_seed = getattr(config, 'problem_seed', list(config.seeds)[0])
+    
     output_path = Path(output_dir)
     try:
         output_path.mkdir(parents=True, exist_ok=True)
@@ -315,8 +384,10 @@ def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchma
     print(f"Max iterations: {config.max_iter}")
     print(f"Number of runs: {len(config.seeds)}")
     print(f"Success threshold: {config.threshold}")
+    print(f"Problem seed: {problem_seed}")
     print(f"Timestamp: {timestamp}")
     
+    # Initialize problem with explicit seed
     problem = RastriginProblem(dim=config.dim)
     
     # Extract algorithm parameters
@@ -335,9 +406,6 @@ def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchma
     
     print(f"Using {n_jobs} parallel workers")
     
-    # Track failed runs
-    failed_runs = []
-    
     # Run experiments for each algorithm IN PARALLEL
     for algo_name in algo_params:
         print(f"\nRunning {algo_name} ({n_runs} runs in parallel)...")
@@ -355,51 +423,48 @@ def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchma
         
         logger.info(f"{algo_name}: Using max_iter={max_iter_actual} for budget={config.budget}")
         
-        # Prepare arguments for parallel execution (NOW includes threshold)
+        # Prepare arguments for parallel execution (NOW includes problem_seed)
         args_list = [
-            (algo_name, problem, params, seed, max_iter_actual, config.threshold, 300)
+            (algo_name, problem, params, seed, max_iter_actual, config.threshold, problem_seed, 300)
             for seed in seeds
         ]
         
         # Run in parallel
         try:
             with mp.Pool(processes=n_jobs) as pool:
-                results = pool.starmap(run_single_experiment_safe, args_list)
+                all_results = pool.starmap(run_single_experiment_safe, args_list)
         except Exception as e:
             logger.error(f"Parallel execution failed for {algo_name}: {e}")
             continue
         
-        # Filter out None (failed runs)
-        successful_results = [r for r in results if r is not None]
-        failed_count = n_runs - len(successful_results)
+        # Separate successful and failed results
+        successful_results = [r for r in all_results if r['status'] == 'ok']
+        failed_results = [r for r in all_results if r['status'] != 'ok']
         
-        # Calculate average budget utilization
+        # Status breakdown
+        status_counts = {}
+        for r in all_results:
+            status = r['status']
+            status_counts[status] = status_counts.get(status, 0) + 1
+        
+        # Calculate average budget utilization (only for successful runs)
         avg_budget_util = np.mean([r['budget_utilization'] for r in successful_results]) if successful_results else 0.0
         
         # Validate budget utilization
         if successful_results and abs(avg_budget_util - 1.0) > 0.1:
             logger.warning(f"{algo_name}: Average budget utilization {avg_budget_util:.2%} deviates from 100% by more than 10%")
         
-        if failed_count > 0:
-            logger.warning(f"{algo_name}: {failed_count}/{n_runs} runs failed")
-            for i, r in enumerate(results):
-                if r is None:
-                    failed_runs.append({
-                        'algorithm': algo_name,
-                        'seed': seeds[i],
-                        'config': config_name,
-                        'timestamp': timestamp
-                    })
+        if len(failed_results) > 0:
+            logger.warning(f"{algo_name}: {len(failed_results)}/{n_runs} runs failed")
         
         if len(successful_results) == 0:
-            logger.error(f"{algo_name}: All runs failed, skipping")
-            continue
+            logger.error(f"{algo_name}: All runs failed, skipping save but logging failures")
         
         # Save with new naming convention
         result_filename = f"rastrigin_{config_name}_{algo_name}_{timestamp}.json"
         result_file = output_path / result_filename
         
-        # Add metadata to results (ĐÃ THÊM pop_size và avg_budget_utilization)
+        # Add metadata to results (includes problem_seed and status breakdown)
         output_data = {
             'metadata': {
                 'problem': 'rastrigin',
@@ -409,14 +474,16 @@ def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchma
                 'dimension': config.dim,
                 'budget': config.budget,
                 'max_iter': max_iter_actual,
-                'pop_size': pop_size,  # NEW: thêm pop_size
+                'pop_size': pop_size,
+                'problem_seed': problem_seed,
                 'n_runs': n_runs,
                 'n_successful': len(successful_results),
-                'n_failed': failed_count,
+                'n_failed': len(failed_results),
+                'status_breakdown': status_counts,
                 'threshold': config.threshold,
-                'avg_budget_utilization': float(avg_budget_util)  # NEW: thêm avg utilization
+                'avg_budget_utilization': float(avg_budget_util)
             },
-            'results': successful_results  # ĐÃ CÓ success và hit_evaluations trong mỗi run
+            'all_results': all_results  # All results including failed ones
         }
         
         # Atomic write
@@ -426,30 +493,26 @@ def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchma
             logger.error(f"Failed to save results for {algo_name}: {e}")
             continue
         
-        # Print summary (ĐÃ THÊM success tracking và hit_evaluations)
-        best_fits = [r['best_fitness'] for r in successful_results]
-        success_rate = np.mean([r['success'] for r in successful_results])
-        hit_evals = [r['hit_evaluations'] for r in successful_results if r['hit_evaluations'] is not None]
+        # Print summary (includes status breakdown)
+        if successful_results:
+            best_fits = [r['best_fitness'] for r in successful_results]
+            success_rate = np.mean([r['success'] for r in successful_results])
+            hit_evals = [r['hit_evaluations'] for r in successful_results if r['hit_evaluations'] is not None]
+            
+            print(f"\n  Summary for {algo_name}:")
+            print(f"    Mean ± Std: {np.mean(best_fits):.4f} ± {np.std(best_fits):.4f}")
+            print(f"    Median: {np.median(best_fits):.4f}")
+            print(f"    Best: {np.min(best_fits):.4f}")
+            print(f"    Worst: {np.max(best_fits):.4f}")
+            print(f"    Success rate: {success_rate:.2%}")
+            if hit_evals:
+                print(f"    Avg hit evals: {np.mean(hit_evals):.0f} ({np.mean(hit_evals)/config.budget:.1%} of budget)")
+            print(f"    Avg time: {np.mean([r['elapsed_time'] for r in successful_results]):.2f}s")
+            print(f"    Budget util: {avg_budget_util:.2%}")
         
-        print(f"\n  Summary for {algo_name}:")
-        print(f"    Mean ± Std: {np.mean(best_fits):.4f} ± {np.std(best_fits):.4f}")
-        print(f"    Median: {np.median(best_fits):.4f}")
-        print(f"    Best: {np.min(best_fits):.4f}")
-        print(f"    Worst: {np.max(best_fits):.4f}")
-        print(f"    Success rate: {success_rate:.2%}")
-        if hit_evals:
-            print(f"    Avg hit evals: {np.mean(hit_evals):.0f} ({np.mean(hit_evals)/config.budget:.1%} of budget)")
-        print(f"    Avg time: {np.mean([r['elapsed_time'] for r in successful_results]):.2f}s")
-        print(f"    Budget util: {avg_budget_util:.2%}")
-    
-    # Save failed runs log
-    if failed_runs:
-        failed_log_file = output_path / f"failed_runs_{timestamp}.json"
-        try:
-            atomic_json_write({'failed_runs': failed_runs}, failed_log_file)
-            logger.warning(f"Failed runs logged to: {failed_log_file}")
-        except Exception as e:
-            logger.error(f"Could not save failed runs log: {e}")
+        # Status breakdown
+        status_str = ", ".join([f"{count} {status}" for status, count in status_counts.items()])
+        print(f"    Status breakdown: {status_str}")
     
     print(f"\n{'=' * 70}")
     print(f"Benchmark complete! Results saved to: {output_path}")
