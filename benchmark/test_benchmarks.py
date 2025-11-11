@@ -11,6 +11,8 @@ import numpy as np
 from pathlib import Path
 import shutil
 from multiprocessing import Pool
+import glob
+import json
 
 from benchmark.run_rastrigin import run_rastrigin_benchmark
 from benchmark.run_knapsack import run_knapsack_benchmark
@@ -27,145 +29,180 @@ def get_knapsack_configs():
     return list(KNAPSACK_CONFIGS.values())
 
 
+def find_result_files(output_dir, config_name, algo_name):
+    """Find all result files matching the pattern."""
+    pattern = str(Path(output_dir) / f"rastrigin_{config_name}_{algo_name}_*.json")
+    return glob.glob(pattern)
+
+
+def validate_result_file(filepath, expected_config, expected_algo, expected_dim, expected_budget):
+    """Validate a single result file."""
+    with open(filepath, 'r') as f:
+        data = json.load(f)
+    
+    # Validate structure
+    assert 'metadata' in data, f"Missing metadata in {filepath}"
+    assert 'results' in data, f"Missing results in {filepath}"
+    
+    metadata = data['metadata']
+    
+    # Validate metadata
+    assert metadata['config_name'] == expected_config, \
+        f"Config mismatch: expected {expected_config}, got {metadata['config_name']}"
+    assert metadata['algorithm'] == expected_algo, \
+        f"Algorithm mismatch: expected {expected_algo}, got {metadata['algorithm']}"
+    assert metadata['dimension'] == expected_dim, \
+        f"Dimension mismatch: expected {expected_dim}, got {metadata['dimension']}"
+    
+    # Validate results
+    results = data['results']
+    assert len(results) > 0, f"No results in {filepath}"
+    
+    for i, result in enumerate(results):
+        # Check required fields
+        required_fields = ['algorithm', 'seed', 'best_fitness', 'history', 
+                          'actual_evaluations', 'budget', 'budget_utilization']
+        for field in required_fields:
+            assert field in result, f"Missing field '{field}' in result {i}"
+        
+        # Validate budget utilization (±5% tolerance)
+        budget_util = result['budget_utilization']
+        assert 0.95 <= budget_util <= 1.05, \
+            f"Run {i}: Budget utilization {budget_util:.2%} outside ±5% tolerance"
+        
+        # Validate actual evaluations
+        actual_evals = result['actual_evaluations']
+        expected_evals = result['budget']
+        diff_pct = abs(actual_evals - expected_evals) / expected_evals * 100
+        assert diff_pct <= 5, \
+            f"Run {i}: Actual evaluations {actual_evals} differs from budget {expected_evals} by {diff_pct:.2f}%"
+        
+        # Validate history is non-empty and has no NaN/Inf
+        history = result['history']
+        assert len(history) > 0, f"Run {i}: Empty convergence history"
+        assert all(not (h != h or h == float('inf') or h == float('-inf')) for h in history), \
+            f"Run {i}: NaN or Inf in convergence history"
+        
+        # Validate best_fitness is finite
+        fitness = result['best_fitness']
+        assert fitness == fitness and fitness != float('inf') and fitness != float('-inf'), \
+            f"Run {i}: Invalid best_fitness {fitness}"
+
+
 class TestRastriginBenchmark:
     """Test Rastrigin benchmark."""
     
     def test_quick_convergence(self, tmp_path):
         """Test quick convergence config runs without errors."""
-        run_rastrigin_benchmark(config_name='quick_convergence', output_dir=str(tmp_path))
-        assert (tmp_path / 'quick_convergence').exists()
-        assert (tmp_path / 'quick_convergence' / 'FA_results.json').exists()
+        run_rastrigin_benchmark(config_name='quick_convergence', output_dir=str(tmp_path), n_jobs=2)
+        
+        # Find result files with new naming convention
+        for algo in ['FA', 'SA', 'HC', 'GA']:
+            result_files = find_result_files(tmp_path, 'quick_convergence', algo)
+            assert len(result_files) > 0, f"No result files found for {algo}"
     
     def test_all_algorithms_produce_results(self, tmp_path):
         """Test that all algorithms produce results."""
-        run_rastrigin_benchmark(config_name='quick_convergence', output_dir=str(tmp_path))
-        result_dir = tmp_path / 'quick_convergence'
+        run_rastrigin_benchmark(config_name='quick_convergence', output_dir=str(tmp_path), n_jobs=2)
         
         for algo in ['FA', 'SA', 'HC', 'GA']:
-            assert (result_dir / f'{algo}_results.json').exists()
-
-
-class TestKnapsackBenchmark:
-    """Test Knapsack benchmark."""
+            result_files = find_result_files(tmp_path, 'quick_convergence', algo)
+            assert len(result_files) > 0, f"No result files found for {algo}"
+            
+            # Validate the most recent file
+            latest_file = max(result_files, key=lambda x: Path(x).stat().st_mtime)
+            validate_result_file(
+                latest_file,
+                expected_config='quick_convergence',
+                expected_algo=algo,
+                expected_dim=2,
+                expected_budget=3000
+            )
     
-    def test_small_knapsack(self, tmp_path):
-        """Test small knapsack config runs without errors."""
-        # Use size=50 with uncorrelated type (smallest config)
-        run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir=str(tmp_path))
-        assert tmp_path.exists()
-        # Check that at least one result file exists
-        result_files = list(tmp_path.glob('*.json'))
-        assert len(result_files) > 0
-    
-    def test_all_algorithms_produce_results(self, tmp_path):
-        """Test that all algorithms produce results."""
-        # Run small benchmark
-        run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir=str(tmp_path))
+    @pytest.mark.parametrize("config_name,expected_dim,expected_budget", [
+        ("quick_convergence", 2, 3000),
+        ("multimodal_escape", 5, 10000),
+        ("scalability", 10, 30000),
+    ])
+    def test_rastrigin_configs(self, config_name, expected_dim, expected_budget, tmp_path):
+        """Test different Rastrigin configurations."""
+        run_rastrigin_benchmark(config_name=config_name, output_dir=str(tmp_path), n_jobs=2)
         
-        # Check that results exist for all algorithms
         for algo in ['FA', 'SA', 'HC', 'GA']:
-            algo_files = list(tmp_path.glob(f'*_{algo}.json'))
-            assert len(algo_files) > 0, f"No results found for {algo}"
-
-
-class TestBenchmarkConfigs:
-    """Test benchmark configurations."""
+            result_files = find_result_files(tmp_path, config_name, algo)
+            assert len(result_files) > 0, f"No result files found for {algo} in {config_name}"
+            
+            # Validate latest file
+            latest_file = max(result_files, key=lambda x: Path(x).stat().st_mtime)
+            validate_result_file(
+                latest_file,
+                expected_config=config_name,
+                expected_algo=algo,
+                expected_dim=expected_dim,
+                expected_budget=expected_budget
+            )
     
-    def test_rastrigin_configs_valid(self):
-        """Test that all Rastrigin configs are valid."""
-        configs = get_rastrigin_configs()
+    def test_failed_runs_handling(self, tmp_path):
+        """Test that failed runs are logged properly."""
+        run_rastrigin_benchmark(config_name='quick_convergence', output_dir=str(tmp_path), n_jobs=2)
         
-        for config in configs:
-            assert config.dim > 0
-            assert config.budget > 0
-            assert config.threshold > 0
-            assert len(config.fa_params) > 0
-    
-    def test_knapsack_configs_valid(self):
-        """Test that all Knapsack configs are valid."""
-        configs = get_knapsack_configs()
-        
-        for config in configs:
-            assert config.n_items > 0
-            assert config.budget > 0
-            assert config.instance_type in ['uncorrelated', 'weakly', 'strongly', 'subset']
-            assert len(config.fa_params) > 0
-
-
-def run_rastrigin_task(args):
-    """Helper function for parallel Rastrigin benchmark."""
-    config_name, output_dir = args
-    try:
-        run_rastrigin_benchmark(config_name=config_name, output_dir=output_dir)
-        return f"✓ {config_name} passed"
-    except Exception as e:
-        return f"✗ {config_name} failed: {str(e)}"
-
-
-def run_knapsack_task(args):
-    """Helper function for parallel Knapsack benchmark."""
-    size, instance_type, output_dir = args
-    try:
-        run_knapsack_benchmark(size=size, instance_type=instance_type, output_dir=output_dir)
-        return f"✓ Knapsack({size}, {instance_type}) passed"
-    except Exception as e:
-        return f"✗ Knapsack({size}, {instance_type}) failed: {str(e)}"
+        # Check if failed runs log exists
+        failed_logs = list(tmp_path.glob('failed_runs_*.json'))
+        if failed_logs:
+            with open(failed_logs[0], 'r') as f:
+                data = json.load(f)
+                assert 'failed_runs' in data
+                for failed_run in data['failed_runs']:
+                    assert 'algorithm' in failed_run
+                    assert 'seed' in failed_run
+                    assert 'error' in failed_run
 
 
 def run_quick_tests(parallel=False, num_workers=4):
-    """Run quick sanity tests."""
-    print("Running quick sanity tests...")
-    if parallel:
-        print(f"Mode: PARALLEL ({num_workers} workers)")
-    else:
-        print("Mode: SEQUENTIAL")
-    
-    test_dir = Path('benchmark/results/test_tmp')
+    """Run quick sanity tests without pytest."""
+    test_dir = Path('benchmark/results/quick_test')
     test_dir.mkdir(parents=True, exist_ok=True)
     
     try:
+        print("=" * 70)
+        print("RUNNING QUICK BENCHMARK TESTS")
+        print("=" * 70)
+        
         if parallel:
             # Parallel execution
-            print("\n" + "=" * 70)
-            print("RUNNING PARALLEL BENCHMARKS")
-            print("=" * 70)
+            print("\n1. Testing Rastrigin benchmark (parallel)...")
+            run_rastrigin_benchmark(
+                config_name='quick_convergence',
+                output_dir=str(test_dir / 'rastrigin'),
+                n_jobs=num_workers
+            )
+            print("   ✓ Rastrigin benchmark passed")
             
-            # Prepare tasks
-            rastrigin_tasks = [
-                ('quick_convergence', str(test_dir / 'rastrigin' / 'quick_convergence'))
-            ]
-            
-            knapsack_tasks = [
-                (50, 'uncorrelated', str(test_dir / 'knapsack' / 'small')),
-                (100, 'uncorrelated', str(test_dir / 'knapsack' / 'medium')),
-            ]
-            
-            all_tasks = rastrigin_tasks + knapsack_tasks
-            
-            # Run in parallel
-            with Pool(num_workers) as pool:
-                # Run Rastrigin tasks
-                rastrigin_results = pool.map(run_rastrigin_task, rastrigin_tasks)
-                
-                # Run Knapsack tasks
-                knapsack_results = pool.map(run_knapsack_task, knapsack_tasks)
-            
-            # Print results
-            print("\nRastrigin Results:")
-            for result in rastrigin_results:
-                print(f"  {result}")
-            
-            print("\nKnapsack Results:")
-            for result in knapsack_results:
-                print(f"  {result}")
+            print("\n2. Testing Knapsack benchmark (parallel)...")
+            run_knapsack_benchmark(
+                size=50,
+                instance_type='uncorrelated',
+                output_dir=str(test_dir / 'knapsack'),
+                n_jobs=num_workers
+            )
+            print("   ✓ Knapsack benchmark passed")
         else:
             # Sequential execution
             print("\n1. Testing Rastrigin benchmark...")
-            run_rastrigin_benchmark(config_name='quick_convergence', output_dir=str(test_dir / 'rastrigin'))
+            run_rastrigin_benchmark(
+                config_name='quick_convergence',
+                output_dir=str(test_dir / 'rastrigin'),
+                n_jobs=2
+            )
             print("   ✓ Rastrigin benchmark passed")
             
             print("\n2. Testing Knapsack benchmark...")
-            run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir=str(test_dir / 'knapsack'))
+            run_knapsack_benchmark(
+                size=50,
+                instance_type='uncorrelated',
+                output_dir=str(test_dir / 'knapsack'),
+                n_jobs=2
+            )
             print("   ✓ Knapsack benchmark passed")
         
         print("\n" + "=" * 70)

@@ -147,12 +147,14 @@ def atomic_json_write(data: dict, output_file: Path):
         raise
 
 
-def run_single_experiment_safe(algo_name, problem, params, seed, max_iter, timeout_seconds=300):
+def run_single_experiment_safe(algo_name, problem, params, seed, max_iter, threshold, timeout_seconds=300):
     """
     Run single experiment with timeout and error handling.
     
     Parameters
     ----------
+    threshold : float
+        Success threshold for tracking convergence
     timeout_seconds : int
         Maximum execution time in seconds (default: 5 minutes)
         
@@ -204,13 +206,41 @@ def run_single_experiment_safe(algo_name, problem, params, seed, max_iter, timeo
             logger.warning(f"{algo_name} seed={seed}: Invalid fitness value: {best_fitness}")
             return None
         
+        # Calculate actual evaluations based on algorithm type
+        if algo_name in ['FA', 'GA']:  # Population-based
+            pop_size = params.get('n_fireflies') or params.get('pop_size', 1)
+            actual_evaluations = len(history) * pop_size
+            budget = max_iter * pop_size
+        else:  # Single-solution (SA, HC)
+            actual_evaluations = len(history)
+            budget = max_iter
+        
+        # Track success and hit_evaluations
+        success = bool(best_fitness < threshold)
+        hit_evaluations = None
+        
+        if success:
+            # Find first evaluation where threshold was hit
+            for i, h in enumerate(history):
+                if h < threshold:
+                    if algo_name in ['FA', 'GA']:
+                        pop_size = params.get('n_fireflies') or params.get('pop_size', 1)
+                        hit_evaluations = (i + 1) * pop_size
+                    else:
+                        hit_evaluations = i + 1
+                    break
+        
         return {
             'algorithm': algo_name,
             'seed': seed,
             'best_fitness': float(best_fitness),
             'history': [float(h) for h in history],
             'elapsed_time': float(elapsed),
-            'evaluations': len(history) * (params.get('n_fireflies', 1) or params.get('pop_size', 1))
+            'evaluations': int(actual_evaluations),
+            'budget': int(budget),
+            'budget_utilization': float(actual_evaluations / budget),
+            'success': success,
+            'hit_evaluations': int(hit_evaluations) if hit_evaluations is not None else None
         }
         
     except TimeoutException:
@@ -312,9 +342,22 @@ def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchma
     for algo_name in algo_params:
         print(f"\nRunning {algo_name} ({n_runs} runs in parallel)...")
         
-        # Prepare arguments for parallel execution
+        # Calculate correct max_iter based on algorithm type and budget
+        params = algo_params[algo_name]
+        if algo_name in ['FA', 'GA']:  # Population-based
+            pop_size = params.get('n_fireflies') or params.get('pop_size', 50)
+            max_iter_actual = config.budget // pop_size
+            if config.budget % pop_size != 0:
+                logger.warning(f"{algo_name}: Budget {config.budget} not divisible by pop_size {pop_size}, using {max_iter_actual} iterations")
+        else:  # Single-solution (SA, HC)
+            max_iter_actual = config.budget
+            pop_size = 1  # For metadata consistency
+        
+        logger.info(f"{algo_name}: Using max_iter={max_iter_actual} for budget={config.budget}")
+        
+        # Prepare arguments for parallel execution (NOW includes threshold)
         args_list = [
-            (algo_name, problem, algo_params[algo_name], seed, config.max_iter, 300)
+            (algo_name, problem, params, seed, max_iter_actual, config.threshold, 300)
             for seed in seeds
         ]
         
@@ -329,6 +372,13 @@ def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchma
         # Filter out None (failed runs)
         successful_results = [r for r in results if r is not None]
         failed_count = n_runs - len(successful_results)
+        
+        # Calculate average budget utilization
+        avg_budget_util = np.mean([r['budget_utilization'] for r in successful_results]) if successful_results else 0.0
+        
+        # Validate budget utilization
+        if successful_results and abs(avg_budget_util - 1.0) > 0.1:
+            logger.warning(f"{algo_name}: Average budget utilization {avg_budget_util:.2%} deviates from 100% by more than 10%")
         
         if failed_count > 0:
             logger.warning(f"{algo_name}: {failed_count}/{n_runs} runs failed")
@@ -349,7 +399,7 @@ def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchma
         result_filename = f"rastrigin_{config_name}_{algo_name}_{timestamp}.json"
         result_file = output_path / result_filename
         
-        # Add metadata to results
+        # Add metadata to results (ĐÃ THÊM pop_size và avg_budget_utilization)
         output_data = {
             'metadata': {
                 'problem': 'rastrigin',
@@ -358,13 +408,15 @@ def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchma
                 'timestamp': timestamp,
                 'dimension': config.dim,
                 'budget': config.budget,
-                'max_iter': config.max_iter,
+                'max_iter': max_iter_actual,
+                'pop_size': pop_size,  # NEW: thêm pop_size
                 'n_runs': n_runs,
                 'n_successful': len(successful_results),
                 'n_failed': failed_count,
-                'threshold': config.threshold
+                'threshold': config.threshold,
+                'avg_budget_utilization': float(avg_budget_util)  # NEW: thêm avg utilization
             },
-            'results': successful_results
+            'results': successful_results  # ĐÃ CÓ success và hit_evaluations trong mỗi run
         }
         
         # Atomic write
@@ -374,15 +426,21 @@ def run_rastrigin_benchmark(config_name='quick_convergence', output_dir='benchma
             logger.error(f"Failed to save results for {algo_name}: {e}")
             continue
         
-        # Print summary
+        # Print summary (ĐÃ THÊM success tracking và hit_evaluations)
         best_fits = [r['best_fitness'] for r in successful_results]
+        success_rate = np.mean([r['success'] for r in successful_results])
+        hit_evals = [r['hit_evaluations'] for r in successful_results if r['hit_evaluations'] is not None]
+        
         print(f"\n  Summary for {algo_name}:")
         print(f"    Mean ± Std: {np.mean(best_fits):.4f} ± {np.std(best_fits):.4f}")
         print(f"    Median: {np.median(best_fits):.4f}")
         print(f"    Best: {np.min(best_fits):.4f}")
         print(f"    Worst: {np.max(best_fits):.4f}")
-        print(f"    Success rate: {np.mean([f < config.threshold for f in best_fits]):.2%}")
+        print(f"    Success rate: {success_rate:.2%}")
+        if hit_evals:
+            print(f"    Avg hit evals: {np.mean(hit_evals):.0f} ({np.mean(hit_evals)/config.budget:.1%} of budget)")
         print(f"    Avg time: {np.mean([r['elapsed_time'] for r in successful_results]):.2f}s")
+        print(f"    Budget util: {avg_budget_util:.2%}")
     
     # Save failed runs log
     if failed_runs:

@@ -30,26 +30,76 @@ def validate_ranges(params: Dict, param_name: str) -> bool:
     ValueError
         If validation fails
     """
-    # Check positive values
-    positive_params = ['n_fireflies', 'pop_size', 'n_neighbors', 'restart_after']
-    for key in positive_params:
-        if key in params and params[key] <= 0:
-            raise ValueError(f"{param_name}.{key} must be > 0, got {params[key]}")
+    # Firefly Algorithm (FA) validations
+    if 'n_fireflies' in params:
+        if params['n_fireflies'] < 2:
+            raise ValueError(f"{param_name}.n_fireflies must be >= 2, got {params['n_fireflies']}")
     
-    # Check probability ranges [0, 1]
-    prob_params = ['alpha', 'beta0', 'gamma', 'alpha_flip', 'crossover_rate', 'mutation_rate']
-    for key in prob_params:
-        if key in params:
-            if not (0 <= params[key] <= 1):
-                raise ValueError(f"{param_name}.{key} must be in [0, 1], got {params[key]}")
+    if 'alpha' in params:
+        if not 0 <= params['alpha'] <= 1:
+            raise ValueError(f"{param_name}.alpha must be in [0, 1], got {params['alpha']}")
     
-    # Check temperature
-    if 'T0' in params and params['T0'] <= 0:
-        raise ValueError(f"{param_name}.T0 must be > 0, got {params['T0']}")
+    if 'beta0' in params:
+        if not 0 <= params['beta0'] <= 1:
+            raise ValueError(f"{param_name}.beta0 must be in [0, 1], got {params['beta0']}")
+    
+    if 'gamma' in params:
+        if not 0 <= params['gamma'] <= 1:
+            raise ValueError(f"{param_name}.gamma must be in [0, 1], got {params['gamma']}")
+    
+    # Simulated Annealing (SA) validations
+    if 'initial_temp' in params:  # Correct field name
+        if params['initial_temp'] <= 0:
+            raise ValueError(f"{param_name}.initial_temp must be > 0, got {params['initial_temp']}")
+    
+    if 'T0' in params:  # Also check old field name for backward compatibility
+        if params['T0'] <= 0:
+            raise ValueError(f"{param_name}.T0 must be > 0, got {params['T0']}")
     
     if 'cooling_rate' in params:
-        if not (0 < params['cooling_rate'] < 1):
+        if not 0 < params['cooling_rate'] < 1:
             raise ValueError(f"{param_name}.cooling_rate must be in (0, 1), got {params['cooling_rate']}")
+    
+    if 'min_temp' in params:
+        if params['min_temp'] <= 0:
+            raise ValueError(f"{param_name}.min_temp must be > 0, got {params['min_temp']}")
+    
+    # Hill Climbing (HC) validations
+    if 'num_neighbors' in params:  # Correct field name
+        if params['num_neighbors'] < 1:
+            raise ValueError(f"{param_name}.num_neighbors must be >= 1, got {params['num_neighbors']}")
+    
+    if 'n_neighbors' in params:  # Old field name
+        logger.warning(f"{param_name}: Use 'num_neighbors' instead of 'n_neighbors'")
+        if params['n_neighbors'] < 1:
+            raise ValueError(f"{param_name}.n_neighbors must be >= 1, got {params['n_neighbors']}")
+    
+    if 'restart_interval' in params:  # Correct field name
+        if params['restart_interval'] < 1:
+            raise ValueError(f"{param_name}.restart_interval must be >= 1, got {params['restart_interval']}")
+    
+    if 'restart_after' in params:  # Old field name
+        logger.warning(f"{param_name}: Use 'restart_interval' instead of 'restart_after'")
+        if params['restart_after'] < 1:
+            raise ValueError(f"{param_name}.restart_after must be >= 1, got {params['restart_after']}")
+    
+    # Genetic Algorithm (GA) validations
+    if 'pop_size' in params:
+        if params['pop_size'] < 2:
+            raise ValueError(f"{param_name}.pop_size must be >= 2, got {params['pop_size']}")
+    
+    if 'crossover_rate' in params:
+        if not 0 <= params['crossover_rate'] <= 1:
+            raise ValueError(f"{param_name}.crossover_rate must be in [0, 1], got {params['crossover_rate']}")
+    
+    if 'mutation_rate' in params:
+        if not 0 <= params['mutation_rate'] <= 1:
+            raise ValueError(f"{param_name}.mutation_rate must be in [0, 1], got {params['mutation_rate']}")
+    
+    # Knapsack-specific FA validations
+    if 'alpha_flip' in params:
+        if not 0 <= params['alpha_flip'] <= 1:
+            raise ValueError(f"{param_name}.alpha_flip must be in [0, 1], got {params['alpha_flip']}")
     
     logger.debug(f"Parameters validated: {param_name}")
     return True
@@ -184,27 +234,28 @@ class KnapsackConfig:
 # Rastrigin Benchmark Configurations
 RASTRIGIN_CONFIGS = {
     'quick_convergence': RastriginConfig(
-        dim=2,
-        budget=3000,
-        max_iter=100,
-        threshold=1.0,
+        dim=10,
+        budget=10000,
+        max_iter=250,  # For FA/GA: 10000 / 40 = 250; For SA/HC: use budget directly
+        threshold=10.0,
         seeds=list(range(30)),
         fa_params={
-            'n_fireflies': 30,
+            'n_fireflies': 40,
             'alpha': 0.2,
             'beta0': 1.0,
             'gamma': 1.0
         },
         sa_params={
             'initial_temp': 100.0,
-            'cooling_rate': 0.95
+            'cooling_rate': 0.95,
+            'min_temp': 1.0
         },
         hc_params={
             'num_neighbors': 20,
             'restart_interval': 50
         },
         ga_params={
-            'pop_size': 30,
+            'pop_size': 40,
             'crossover_rate': 0.8,
             'mutation_rate': 0.1,
             'tournament_size': 3,
@@ -213,27 +264,28 @@ RASTRIGIN_CONFIGS = {
     ),
     
     'multimodal_escape': RastriginConfig(
-        dim=5,
-        budget=10000,
-        max_iter=200,
-        threshold=5.0,
+        dim=30,
+        budget=30000,
+        max_iter=500,  # For FA/GA: 30000 / 60 = 500; For SA/HC: use budget directly
+        threshold=50.0,
         seeds=list(range(30)),
         fa_params={
-            'n_fireflies': 50,
+            'n_fireflies': 60,
             'alpha': 0.3,
             'beta0': 1.0,
             'gamma': 0.5
         },
         sa_params={
             'initial_temp': 200.0,
-            'cooling_rate': 0.98
+            'cooling_rate': 0.98,
+            'min_temp': 1.0
         },
         hc_params={
             'num_neighbors': 30,
             'restart_interval': 30
         },
         ga_params={
-            'pop_size': 50,
+            'pop_size': 60,
             'crossover_rate': 0.8,
             'mutation_rate': 0.1,
             'tournament_size': 5,
@@ -242,27 +294,28 @@ RASTRIGIN_CONFIGS = {
     ),
     
     'scalability': RastriginConfig(
-        dim=10,
-        budget=30000,
-        max_iter=300,
-        threshold=20.0,
+        dim=50,
+        budget=50000,
+        max_iter=625,  # For FA/GA: 50000 / 80 = 625; For SA/HC: use budget directly
+        threshold=100.0,
         seeds=list(range(30)),
         fa_params={
-            'n_fireflies': 100,
+            'n_fireflies': 80,
             'alpha': 0.25,
             'beta0': 1.0,
             'gamma': 0.3
         },
         sa_params={
             'initial_temp': 300.0,
-            'cooling_rate': 0.99
+            'cooling_rate': 0.99,
+            'min_temp': 1.0
         },
         hc_params={
             'num_neighbors': 50,
             'restart_interval': 50
         },
         ga_params={
-            'pop_size': 100,
+            'pop_size': 80,
             'crossover_rate': 0.85,
             'mutation_rate': 0.05,
             'tournament_size': 7,
@@ -270,7 +323,6 @@ RASTRIGIN_CONFIGS = {
         }
     )
 }
-
 
 def get_knapsack_configs() -> List[KnapsackConfig]:
     """
@@ -284,7 +336,7 @@ def get_knapsack_configs() -> List[KnapsackConfig]:
     configs = []
     
     # Size variations with different instance types
-    sizes = [50, 100, 200, 500]
+    sizes = [50, 100, 200]
     instance_types = ['uncorrelated', 'weakly', 'strongly', 'subset']
     seeds = [42, 123, 999]
     

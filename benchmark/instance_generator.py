@@ -11,55 +11,50 @@ def generate_knapsack_instance(
     n_items: int,
     instance_type: str,
     seed: int
-) -> Tuple[np.ndarray, np.ndarray, float]:
+) -> Tuple[np.ndarray, np.ndarray, int]:
     """
     Generate a Knapsack instance.
     
     Parameters
     ----------
-    n_items : int
-        Number of items.
-    instance_type : str
-        One of: 'uncorrelated', 'weakly', 'strongly', 'subset'.
-    seed : int
-        Random seed for reproducibility.
+    ...
     
     Returns
     -------
     values : np.ndarray
-        Item values, shape (n_items,).
+        Item values, shape (n_items,), dtype=int.
     weights : np.ndarray
-        Item weights, shape (n_items,).
-    capacity : float
-        Knapsack capacity (50% of total weight).
+        Item weights, shape (n_items,), dtype=int.
+    capacity : int
+        Knapsack capacity (50% of total weight), dtype=int.
+        This ensures DP algorithms can use it as array index.
     """
     rng = np.random.RandomState(seed)
     
     if instance_type == 'uncorrelated':
-        # Random values and weights
         values = rng.randint(1, 1001, n_items)
         weights = rng.randint(1, 1001, n_items)
     
     elif instance_type == 'weakly':
-        # Values weakly correlated with weights
         weights = rng.randint(1, 1001, n_items)
         values = weights + rng.randint(-100, 101, n_items)
-        values = np.maximum(values, 1)  # Ensure positive
+        values = np.maximum(values, 1)
     
     elif instance_type == 'strongly':
-        # Values strongly correlated with weights
         weights = rng.randint(1, 1001, n_items)
         values = weights + 100
     
     elif instance_type == 'subset':
-        # Subset-sum: values equal weights
         weights = rng.randint(1, 1001, n_items)
         values = weights.copy()
     
     else:
         raise ValueError(f"Unknown instance_type: {instance_type}")
     
-    capacity = 0.5 * np.sum(weights)
+    # Ensure integer types for DP compatibility
+    values = values.astype(np.int64)
+    weights = weights.astype(np.int64)
+    capacity = int(0.5 * np.sum(weights))  # Convert to int for DP
     
     return values, weights, capacity
 

@@ -89,6 +89,15 @@ def run_single_knapsack_experiment(algo_name, problem, params, seed, max_iter):
     total_weight = np.sum(best_sol * problem.weights)
     is_feasible = bool(total_weight <= problem.capacity)
     
+    # Calculate actual evaluations (THÊM MỚI)
+    if algo_name in ['FA', 'GA']:  # Population-based
+        pop_size = params.get('n_fireflies') or params.get('pop_size', 1)
+        actual_evaluations = len(history) * pop_size
+        budget = max_iter * pop_size
+    else:  # Single-solution (SA, HC)
+        actual_evaluations = len(history)
+        budget = max_iter
+    
     return {
         'algorithm': algo_name,
         'seed': int(seed),
@@ -100,7 +109,10 @@ def run_single_knapsack_experiment(algo_name, problem, params, seed, max_iter):
         'history': [float(h) for h in history],
         'elapsed_time': float(elapsed),
         'items_selected': int(np.sum(best_sol)),
-        'capacity_utilization': float(total_weight / problem.capacity)
+        'capacity_utilization': float(total_weight / problem.capacity),
+        'evaluations': int(actual_evaluations),  # NEW
+        'budget': int(budget),  # NEW
+        'budget_utilization': float(actual_evaluations / budget)  # NEW
     }
 
 
@@ -186,7 +198,7 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
         max_iter_ga = config.budget // config.ga_params['pop_size']
         max_iter_single = config.budget  # HC and SA evaluate 1 solution per iter
         
-        # Setup algorithms
+        # Setup algorithms with max_iter
         algorithms = {
             'FA': (config.fa_params, max_iter_fa),
             'SA': (config.sa_params, max_iter_single),
@@ -200,6 +212,14 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
         for algo_name, (algo_params, max_iter) in algorithms.items():
             print(f"\nRunning {algo_name} ({len(seeds)} runs in parallel)...")
             
+            # Extract pop_size for metadata (THÊM MỚI)
+            if algo_name == 'FA':
+                pop_size = algo_params['n_fireflies']
+            elif algo_name == 'GA':
+                pop_size = algo_params['pop_size']
+            else:
+                pop_size = 1
+            
             # Prepare arguments for parallel execution
             args_list = [
                 (algo_name, problem, algo_params, seed, max_iter)
@@ -210,17 +230,23 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
             with mp.Pool(processes=n_jobs) as pool:
                 results = pool.starmap(run_single_knapsack_experiment, args_list)
             
-            # Add DP optimal if available
+            # Add DP optimal gap if available (CHỈ THÊM optimality_gap, KHÔNG thêm dp_optimal_value vào mỗi result)
+            gap_results = results
             if dp_optimal_value is not None:
+                gap_results = []
                 for result in results:
-                    result['dp_optimal_value'] = float(dp_optimal_value)
-                    result['optimality_gap'] = float((dp_optimal_value - result['best_value']) / dp_optimal_value * 100)
+                    r = result.copy()
+                    r['optimality_gap'] = float((dp_optimal_value - result['best_value']) / dp_optimal_value * 100)
+                    gap_results.append(r)
+            
+            # Calculate average budget utilization (THÊM MỚI)
+            avg_budget_util = np.mean([r['budget_utilization'] for r in results])
             
             # New naming: knapsack_n{size}_{type}_seed{seed}_{algo}_{timestamp}.json
             filename = f"knapsack_n{config.n_items}_{config.instance_type}_seed{config.seed}_{algo_name}_{timestamp}.json"
             result_file = output_path / filename
             
-            # Add metadata
+            # Add metadata (ĐÃ THÊM max_iter, pop_size, avg_budget_utilization)
             output_data = {
                 'metadata': {
                     'problem': 'knapsack',
@@ -230,10 +256,13 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
                     'algorithm': algo_name,
                     'timestamp': timestamp,
                     'budget': int(config.budget),
-                    'dp_optimal': float(dp_optimal_value) if dp_optimal_value is not None else None,
-                    'has_dp_optimal': config.has_dp_optimal
+                    'max_iter': int(max_iter),  # NEW: thêm max_iter
+                    'pop_size': int(pop_size),  # NEW: thêm pop_size
+                    'dp_optimal': float(dp_optimal_value) if dp_optimal_value is not None else None,  # CHỈ Ở ĐÂY
+                    'has_dp_optimal': config.has_dp_optimal,
+                    'avg_budget_utilization': float(avg_budget_util)  # NEW: thêm avg utilization
                 },
-                'results': results
+                'results': gap_results  # ĐÃ CÓ evaluations, budget, budget_utilization trong mỗi run
             }
             
             with open(result_file, 'w') as f:
@@ -241,7 +270,7 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
             
             print(f"  Saved: {filename}")
             
-            # Print summary
+            # Print summary (ĐÃ THÊM budget utilization)
             values_list = [r['best_value'] for r in results]
             feasible_count = sum(1 for r in results if r['is_feasible'])
             
@@ -253,10 +282,11 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
             print(f"      Feasibility: {feasible_count}/30 ({feasible_count/30*100:.1f}%)")
             
             if dp_optimal_value is not None:
-                gaps = [r['optimality_gap'] for r in results]
+                gaps = [r['optimality_gap'] for r in gap_results]
                 print(f"      Avg gap: {np.mean(gaps):.2f}%")
             
             print(f"      Avg time: {np.mean([r['elapsed_time'] for r in results]):.2f}s")
+            print(f"      Budget util: {avg_budget_util:.2%}")  # NEW: in budget utilization
     
     print(f"\n{'=' * 70}")
     print(f"Knapsack benchmark complete! Results saved to: {output_path}")
