@@ -72,15 +72,20 @@ class HillClimbingOptimizer(BaseOptimizer):
         step_size: float = 0.1,
         num_neighbors: int = 10,
         restart_interval: int = None,
-        repair_method: str = None,
+        repair_method: str = None,  # Deprecated
+        constraint_handling: str = "penalty",  # New: 'repair' or 'penalty'
         seed: int = None
     ):
         """Initialize Hill Climbing optimizer."""
         self.problem = problem
         self.step_size = step_size
-        self.num_neighbors = num_neighbors
-        self.restart_interval = restart_interval
-        self.repair_method = repair_method
+        self.num_neighbors = int(num_neighbors)
+        if restart_interval is not None:
+            self.restart_interval = int(restart_interval) 
+        else:
+            self.restart_interval = None
+        self.repair_method = repair_method  # Deprecated
+        self.constraint_handling = constraint_handling  # New switch
         self.seed = seed
         self.rng = np.random.RandomState(seed)
         
@@ -91,33 +96,14 @@ class HillClimbingOptimizer(BaseOptimizer):
         self.no_improvement_count = 0
     
     def _repair_knapsack(self, solution: np.ndarray) -> np.ndarray:
-        """Repair infeasible Knapsack solution using greedy removal."""
-        if self.repair_method != 'greedy_remove':
-            return solution
+        """Repair infeasible Knapsack solution based on constraint_handling."""
+        if self.constraint_handling != 'repair':
+            return solution  # Let penalty handle it
         
         if self.problem.representation_type() != 'knapsack':
             return solution
         
-        solution = solution.copy()
-        total_weight = np.sum(solution * self.problem.weights)
-        
-        if total_weight <= self.problem.capacity:
-            return solution
-        
-        indices = np.where(solution > 0)[0]
-        if len(indices) == 0:
-            return solution
-        
-        ratios = self.problem.values[indices] / (self.problem.weights[indices] + 1e-8)
-        sorted_indices = indices[np.argsort(ratios)]
-        
-        for idx in sorted_indices:
-            if total_weight <= self.problem.capacity:
-                break
-            solution[idx] = 0
-            total_weight -= self.problem.weights[idx]
-        
-        return solution
+        return self.problem.greedy_repair(solution)
     
     def _generate_neighbor_continuous(self) -> np.ndarray:
         """Generate a neighbor for continuous problems by adding Gaussian noise."""
@@ -131,7 +117,12 @@ class HillClimbingOptimizer(BaseOptimizer):
         neighbor = self.current_solution.copy()
         flip_idx = self.rng.randint(len(neighbor))
         neighbor[flip_idx] = 1 - neighbor[flip_idx]
-        return self._repair_knapsack(neighbor)  # Apply repair
+        
+        # ✅ ONLY repair if constraint_handling='repair'
+        if self.constraint_handling == 'repair':
+            neighbor = self._repair_knapsack(neighbor)
+        
+        return neighbor
     
     def _generate_neighbor(self) -> np.ndarray:
         """Generate a neighbor based on problem type."""
@@ -166,7 +157,8 @@ class HillClimbingOptimizer(BaseOptimizer):
         """
         # Initialize with random solution
         self.current_solution = self.problem.init_solution(self.rng, n=1)[0]
-        self.current_solution = self._repair_knapsack(self.current_solution)  # Repair initial
+        if self.constraint_handling == 'repair':  # ✅ ONLY if repair mode
+            self.current_solution = self._repair_knapsack(self.current_solution)
         self.current_fitness = self.problem.evaluate(self.current_solution)
         
         # Track best solution
@@ -183,7 +175,8 @@ class HillClimbingOptimizer(BaseOptimizer):
                 self.no_improvement_count >= self.restart_interval):
                 # Restart from random solution
                 self.current_solution = self.problem.init_solution(self.rng, n=1)[0]
-                self.current_solution = self._repair_knapsack(self.current_solution)  # Repair after restart
+                if self.constraint_handling == 'repair':  # ✅ ONLY if repair mode
+                    self.current_solution = self._repair_knapsack(self.current_solution)
                 self.current_fitness = self.problem.evaluate(self.current_solution)
                 self.no_improvement_count = 0
             
@@ -338,6 +331,20 @@ if __name__ == "__main__":
         num_neighbors=15,
         seed=42
     )
+    
+    best_coloring, best_conflicts, history_gc, _ = hc_gc.run(max_iter=30)
+    
+    print(f"Initial conflicts: {history_gc[0]:.0f}")
+    print(f"Final conflicts: {history_gc[-1]:.0f}")
+    print(f"Best coloring: {best_coloring}")
+    print(f"Valid coloring: {history_gc[-1] == 0}")
+    
+    print("\n" + "=" * 60)
+    print("All Hill Climbing tests completed!")
+    print("=" * 60)
+    print("All Hill Climbing tests completed!")
+    print("=" * 60)
+
     
     best_coloring, best_conflicts, history_gc, _ = hc_gc.run(max_iter=30)
     

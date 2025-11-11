@@ -152,12 +152,13 @@ class RastriginConfig:
     dim: int
     budget: int
     max_iter: int
-    threshold: float
+    thresholds: Dict[str, float]  # NEW: Multi-level success thresholds (replaced 'threshold')
     seeds: range
     fa_params: Dict
     sa_params: Dict
     hc_params: Dict
     ga_params: Dict
+    tuning_grids: Dict  # NEW: Parameter grids for tuning
     
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -172,8 +173,18 @@ class RastriginConfig:
             if self.max_iter < 10:
                 raise ValueError(f"max_iter must be >= 10, got {self.max_iter}")
             
-            if self.threshold < 0:
-                raise ValueError(f"threshold must be >= 0, got {self.threshold}")
+            # Validate thresholds
+            if not isinstance(self.thresholds, dict):
+                raise ValueError(f"thresholds must be dict, got {type(self.thresholds)}")
+            
+            if len(self.thresholds) == 0:
+                raise ValueError("thresholds cannot be empty")
+            
+            for level, value in self.thresholds.items():
+                if not isinstance(level, str):
+                    raise ValueError(f"threshold level must be string, got {type(level)}")
+                if not isinstance(value, (int, float)) or value < 0:
+                    raise ValueError(f"threshold value must be non-negative number, got {value}")
             
             if len(self.seeds) == 0:
                 raise ValueError("seeds cannot be empty")
@@ -184,7 +195,14 @@ class RastriginConfig:
             validate_ranges(self.hc_params, 'hc_params')
             validate_ranges(self.ga_params, 'ga_params')
             
-            logger.info(f"RastriginConfig validated: dim={self.dim}, budget={self.budget}")
+            # Validate tuning_grids
+            if hasattr(self, 'tuning_grids') and self.tuning_grids:
+                for algo, grid in self.tuning_grids.items():
+                    if not isinstance(grid, dict):
+                        raise ValueError(f"tuning_grids[{algo}] must be dict, got {type(grid)}")
+                    logger.debug(f"Tuning grid for {algo}: {grid}")
+            
+            logger.info(f"RastriginConfig validated: dim={self.dim}, budget={self.budget}, thresholds={self.thresholds}")
             
         except ValueError as e:
             logger.error(f"Invalid RastriginConfig: {e}")
@@ -236,8 +254,12 @@ RASTRIGIN_CONFIGS = {
     'quick_convergence': RastriginConfig(
         dim=10,
         budget=10000,
-        max_iter=250,  # For FA/GA: 10000 / 40 = 250; For SA/HC: use budget directly
-        threshold=10.0,
+        max_iter=250,
+        thresholds={
+            'gold': 1.0,      # Very close to optimum
+            'silver': 10.0,    # Escaped bad regions, found good local minimum
+            'bronze': 30.0    # Escaped worst regions
+        },
         seeds=list(range(30)),
         fa_params={
             'n_fireflies': 40,
@@ -260,14 +282,34 @@ RASTRIGIN_CONFIGS = {
             'mutation_rate': 0.1,
             'tournament_size': 3,
             'elitism': True
+        },
+        tuning_grids={
+            'FA': {
+                'alpha': [0.15, 0.2, 0.25],
+                'gamma': [0.8, 1.0, 1.2]
+            },
+            'SA': {
+                'cooling_rate': [0.93, 0.95, 0.97]
+            },
+            'HC': {
+                'num_neighbors': [15, 20, 25]
+            },
+            'GA': {
+                'mutation_rate': [0.05, 0.1, 0.15],
+                'crossover_rate': [0.75, 0.8, 0.85]
+            }
         }
     ),
     
     'multimodal_escape': RastriginConfig(
         dim=30,
         budget=30000,
-        max_iter=500,  # For FA/GA: 30000 / 60 = 500; For SA/HC: use budget directly
-        threshold=50.0,
+        max_iter=500,
+        thresholds={
+            'gold': 5.0,      # Very close to optimum
+            'silver': 25.0,   # Escaped bad regions, found good local minimum
+            'bronze': 50.0    # Escaped worst regions
+        },
         seeds=list(range(30)),
         fa_params={
             'n_fireflies': 60,
@@ -290,14 +332,34 @@ RASTRIGIN_CONFIGS = {
             'mutation_rate': 0.1,
             'tournament_size': 5,
             'elitism': True
+        },
+        tuning_grids={
+            'FA': {
+                'alpha': [0.25, 0.3, 0.35],
+                'gamma': [0.4, 0.5, 0.6]
+            },
+            'SA': {
+                'cooling_rate': [0.96, 0.98, 0.99]
+            },
+            'HC': {
+                'num_neighbors': [25, 30, 35]
+            },
+            'GA': {
+                'mutation_rate': [0.08, 0.1, 0.12],
+                'crossover_rate': [0.75, 0.8, 0.85]
+            }
         }
     ),
     
     'scalability': RastriginConfig(
         dim=50,
         budget=50000,
-        max_iter=625,  # For FA/GA: 50000 / 80 = 625; For SA/HC: use budget directly
-        threshold=100.0,
+        max_iter=625,
+        thresholds={
+            'gold': 10.0,     # Very close to optimum (higher threshold for harder problem)
+            'silver': 50.0,   # Escaped bad regions
+            'bronze': 80.0   # Escaped worst regions
+        },
         seeds=list(range(30)),
         fa_params={
             'n_fireflies': 80,
@@ -320,6 +382,22 @@ RASTRIGIN_CONFIGS = {
             'mutation_rate': 0.05,
             'tournament_size': 7,
             'elitism': True
+        },
+        tuning_grids={
+            'FA': {
+                'alpha': [0.2, 0.25, 0.3],
+                'gamma': [0.25, 0.3, 0.35]
+            },
+            'SA': {
+                'cooling_rate': [0.98, 0.99, 0.995]
+            },
+            'HC': {
+                'num_neighbors': [40, 50, 60]
+            },
+            'GA': {
+                'mutation_rate': [0.03, 0.05, 0.07],
+                'crossover_rate': [0.8, 0.85, 0.9]
+            }
         }
     )
 }

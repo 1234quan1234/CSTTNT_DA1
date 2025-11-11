@@ -205,6 +205,8 @@ class KnapsackProblem(ProblemBase):
         """
         Public method for greedy repair (for external use by optimizers).
         
+        Removes items with lowest value/weight ratio first until feasible.
+        
         Parameters
         ----------
         solution : np.ndarray
@@ -224,7 +226,13 @@ class KnapsackProblem(ProblemBase):
         selected_indices = np.where(solution == 1)[0]
         
         if len(selected_indices) > 0:
-            ratios = self.values[selected_indices] / self.weights[selected_indices]
+            # Calculate value/weight ratios, avoid division by zero
+            ratios = np.where(
+                self.weights[selected_indices] > 0,
+                self.values[selected_indices] / self.weights[selected_indices],
+                0.0
+            )
+            # Sort by ratio ascending (remove worst items first)
             sorted_indices = selected_indices[np.argsort(ratios)]
             
             for idx in sorted_indices:
@@ -293,7 +301,5 @@ if __name__ == "__main__":
         value = np.sum(sol * values)
         fitness = problem.evaluate(sol)
         print(f"  Sol {i}: {sol} -> weight={weight:.1f}, value={value:.1f}, fitness={fitness:.1f}")
-    
-    print("\nKnapsack problem test passed!")
     
     print("\nKnapsack problem test passed!")

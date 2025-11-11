@@ -321,7 +321,8 @@ class FireflyKnapsackOptimizer(BaseOptimizer):
         n_fireflies: int = 30,
         alpha_flip: float = 0.2,
         max_flips_per_move: int = 3,
-        repair_method: str = "greedy_remove",
+        repair_method: str = "greedy_remove",  # Deprecated, kept for compatibility
+        constraint_handling: str = "repair",  # New: 'repair' or 'penalty'
         seed: int = None
     ):
         """Initialize Firefly Algorithm for Knapsack."""
@@ -347,7 +348,8 @@ class FireflyKnapsackOptimizer(BaseOptimizer):
         self.n_fireflies = n_fireflies
         self.alpha_flip = alpha_flip
         self.max_flips_per_move = max_flips_per_move
-        self.repair_method = repair_method
+        self.repair_method = repair_method  # Keep for backward compatibility
+        self.constraint_handling = constraint_handling  # New switch
         self.seed = seed
         self.rng = np.random.RandomState(seed)
         
@@ -362,94 +364,39 @@ class FireflyKnapsackOptimizer(BaseOptimizer):
     
     def _repair_solution(self, solution: np.ndarray) -> np.ndarray:
         """
-        Repair an infeasible solution by removing items until feasible.
-        
-        Parameters
-        ----------
-        solution : np.ndarray
-            Binary selection vector that may exceed capacity.
-        
-        Returns
-        -------
-        repaired : np.ndarray
-            Feasible binary selection vector.
+        Repair infeasible solution if constraint_handling == 'repair'.
+        Otherwise return as-is (penalty will be applied in evaluate).
         """
-        solution = solution.copy()
-        total_weight = np.sum(solution * self.problem.weights)
-        
-        # If already feasible, return as is
-        if total_weight <= self.problem.capacity:
-            return solution
-        
-        selected_indices = np.where(solution == 1)[0]
-        
-        if self.repair_method == "greedy_remove":
-            # Remove items with lowest value/weight ratio first
-            ratios = self.problem.values[selected_indices] / self.problem.weights[selected_indices]
-            sorted_indices = selected_indices[np.argsort(ratios)]  # Ascending order
-            
-            for idx in sorted_indices:
-                solution[idx] = 0
-                total_weight -= self.problem.weights[idx]
-                if total_weight <= self.problem.capacity:
-                    break
-        
-        else:  # random_remove
-            # Randomly remove items until feasible
-            while total_weight > self.problem.capacity and len(selected_indices) > 0:
-                remove_idx = self.rng.choice(len(selected_indices))
-                item_to_remove = selected_indices[remove_idx]
-                
-                solution[item_to_remove] = 0
-                total_weight -= self.problem.weights[item_to_remove]
-                
-                selected_indices = np.where(solution == 1)[0]
-        
-        return solution
+        if self.constraint_handling == 'repair':
+            return self.problem.greedy_repair(solution)
+        else:
+            return solution  # Let penalty function handle it
     
     def _flip_move_towards(self, i_sol: np.ndarray, j_sol: np.ndarray) -> np.ndarray:
         """
         Apply bit flips to make i_sol more similar to j_sol (better solution).
-        
-        Strategy: Find positions where solutions differ and flip bits in i_sol
-        to match j_sol's structure. This is the discrete equivalent of
-        continuous attraction in standard FA.
-        
-        Parameters
-        ----------
-        i_sol : np.ndarray
-            Current solution to modify (less bright firefly).
-        j_sol : np.ndarray
-            Target (brighter) solution (better firefly).
-        
-        Returns
-        -------
-        new_sol : np.ndarray
-            Modified solution after directed bit flips and repair.
         """
         new_sol = i_sol.copy()
         num_items = len(i_sol)
         
-        # Apply limited number of directed flips to move toward j_sol
+        # Apply limited number of directed flips
         num_flips = self.rng.randint(1, self.max_flips_per_move + 1)
         
         for _ in range(num_flips):
-            # Find positions where solutions differ
             diff_positions = np.where(new_sol != j_sol)[0]
             
             if len(diff_positions) == 0:
-                break  # Solutions are identical, no more flips needed
+                break
             
-            # Pick a random differing position and flip to match j_sol
             pos = self.rng.choice(diff_positions)
             new_sol[pos] = j_sol[pos]
         
-        # Apply random flip for exploration (equivalent to α random term)
+        # Random exploration flip
         if self.rng.rand() < self.alpha_flip:
             flip_pos = self.rng.randint(num_items)
             new_sol[flip_pos] = 1 - new_sol[flip_pos]
         
-        # Repair if infeasible
+        # Apply constraint handling based on switch
         new_sol = self._repair_solution(new_sol)
         
         return new_sol
@@ -577,6 +524,59 @@ if __name__ == "__main__":
     print(f"  Initial best value: {-history_k[0]:.2f}")
     print(f"  Final best value:   {total_value:.2f}")
     print(f"  Best solution: {best_sol_k}")
+    print(f"  Total weight: {total_weight:.2f} / {capacity}")
+    print(f"  Feasible: {total_weight <= capacity}")
+    print(f"  Improvement: {-history_k[0] - (-history_k[-1]):.2f}")
+    
+    # Test 3: Reproducibility test
+    print("\n[TEST 3] Reproducibility Test")
+    print("-" * 70)
+    
+    fa1 = FireflyContinuousOptimizer(problem_rastrigin, n_fireflies=10, seed=999)
+    fa2 = FireflyContinuousOptimizer(problem_rastrigin, n_fireflies=10, seed=999)
+    
+    _, fit1, hist1, _ = fa1.run(max_iter=20)
+    _, fit2, hist2, _ = fa2.run(max_iter=20)
+    
+    print(f"Run 1 final fitness: {fit1:.10f}")
+    print(f"Run 2 final fitness: {fit2:.10f}")
+    print(f"Identical results:   {fit1 == fit2}")
+    
+    if fit1 == fit2:
+        print("✓ Reproducibility test PASSED")
+    else:
+        print("✗ Reproducibility test FAILED")
+    
+    print("\n" + "=" * 70)
+    print("All Firefly Algorithm tests completed successfully!")
+    print("=" * 70)
+    print(f"  Best solution: {best_sol_k}")
+    print(f"  Total weight: {total_weight:.2f} / {capacity}")
+    print(f"  Feasible: {total_weight <= capacity}")
+    print(f"  Improvement: {-history_k[0] - (-history_k[-1]):.2f}")
+    
+    # Test 4: Reproducibility test
+    print("\n[TEST 4] Reproducibility Test")
+    print("-" * 70)
+    
+    fa1 = FireflyContinuousOptimizer(problem_sphere, n_fireflies=10, seed=999)
+    fa2 = FireflyContinuousOptimizer(problem_sphere, n_fireflies=10, seed=999)
+    
+    _, fit1, hist1, _ = fa1.run(max_iter=20)
+    _, fit2, hist2, _ = fa2.run(max_iter=20)
+    
+    print(f"Run 1 final fitness: {fit1:.10f}")
+    print(f"Run 2 final fitness: {fit2:.10f}")
+    print(f"Identical results:   {fit1 == fit2}")
+    
+    if fit1 == fit2:
+        print("✓ Reproducibility test PASSED")
+    else:
+        print("✗ Reproducibility test FAILED")
+    
+    print("\n" + "=" * 70)
+    print("All Firefly Algorithm tests completed successfully!")
+    print("=" * 70)
     print(f"  Total weight: {total_weight:.2f} / {capacity}")
     print(f"  Feasible: {total_weight <= capacity}")
     print(f"  Improvement: {-history_k[0] - (-history_k[-1]):.2f}")

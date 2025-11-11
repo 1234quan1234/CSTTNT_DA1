@@ -87,7 +87,8 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         elitism: int | bool = True,
         tournament_size: int = 3,
         selection_type: str = "tournament",
-        repair_method: str = None,
+        repair_method: str = None,  # Deprecated
+        constraint_handling: str = "penalty",  # New: 'repair' or 'penalty'
         seed: int = None
     ):
         """Initialize Genetic Algorithm optimizer."""
@@ -109,7 +110,8 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         
         self.tournament_size = tournament_size
         self.selection_type = selection_type
-        self.repair_method = repair_method
+        self.repair_method = repair_method  # Deprecated
+        self.constraint_handling = constraint_handling  # New switch
         self.seed = seed
         self.rng = np.random.RandomState(seed)
         
@@ -161,13 +163,15 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         return offspring1, offspring2
     
     def _crossover_discrete(self, parent1: np.ndarray, parent2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Discrete crossover (one-point for Knapsack) with repair."""
+        """Discrete crossover (one-point for Knapsack)."""
         point = self.rng.randint(1, len(parent1))
         child1 = np.concatenate([parent1[:point], parent2[point:]])
         child2 = np.concatenate([parent2[:point], parent1[point:]])
         
-        child1 = self._repair_knapsack(child1)
-        child2 = self._repair_knapsack(child2)
+        # ✅ ONLY repair if constraint_handling='repair'
+        if self.constraint_handling == 'repair':
+            child1 = self._repair_knapsack(child1)
+            child2 = self._repair_knapsack(child2)
         
         return child1, child2
     
@@ -188,12 +192,17 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
     # ========== Mutation Operators ==========
     
     def _mutate_knapsack(self, individual: np.ndarray) -> np.ndarray:
-        """Mutation for Knapsack: per-gene bit flip with repair."""
+        """Mutation for Knapsack: per-gene bit flip."""
         mutated = individual.copy()
         for i in range(len(mutated)):
             if self.rng.rand() < self.mutation_rate:
                 mutated[i] = 1 - mutated[i]
-        return self._repair_knapsack(mutated)
+        
+        # ✅ ONLY repair if constraint_handling='repair'
+        if self.constraint_handling == 'repair':
+            mutated = self._repair_knapsack(mutated)
+        
+        return mutated
     
     def _mutate_continuous(self, individual: np.ndarray) -> np.ndarray:
         """Mutation for continuous: add Gaussian noise."""
@@ -207,7 +216,7 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         if repr_type == "knapsack":
             return self._mutate_knapsack(individual)
         elif repr_type == "continuous":
-            return self.mutate_continuous(individual)
+            return self._mutate_continuous(individual)
         else:
             raise NotImplementedError(f"Mutation not implemented for {repr_type}")
     
@@ -286,213 +295,22 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         best_solution, best_fitness = get_best_solution(self.population, self.fitness)
         
         return best_solution, best_fitness, history_best, trajectory
+    
+    # ========== Repair Methods ==========
+    def _repair_knapsack(self, individual: np.ndarray) -> np.ndarray:
+        """
+        Repair a Knapsack solution based on constraint_handling switch.
+        """
+        if self.constraint_handling != 'repair':
+            return individual  # Let penalty handle it
+        
+        # Ensure binary
+        x = np.array(individual, dtype=int)
+        x[x > 1] = 1
+        x[x < 0] = 0
 
+        if not hasattr(self.problem, "weights") or not hasattr(self.problem, "capacity"):
+            return x
 
-if __name__ == "__main__":
-    print("=" * 60)
-    print("GENETIC ALGORITHM OPTIMIZER DEMO")
-    print("=" * 60)
+        return self.problem.greedy_repair(x)
     
-    # Test on Knapsack
-    print("\n1. Genetic Algorithm on Knapsack Problem")
-    print("-" * 60)
-    from problems.discrete.knapsack import KnapsackProblem
-    
-    values = np.array([10, 20, 30, 40, 50, 60])
-    weights = np.array([1, 2, 3, 4, 5, 6])
-    capacity = 10.0
-    problem_knapsack = KnapsackProblem(values, weights, capacity)
-    
-    ga_knapsack = GeneticAlgorithmOptimizer(
-        problem=problem_knapsack,
-        pop_size=20,
-        crossover_rate=0.7,
-        mutation_rate=0.15,
-        seed=42
-    )
-    
-    best_sel, best_fit, history_k, _ = ga_knapsack.run(max_iter=40)
-    
-    print(f"Initial best fitness: {history_k[0]:.2f}")
-    print(f"Final best fitness: {history_k[-1]:.2f}")
-    print(f"Best selection: {best_sel}")
-    total_weight = np.sum(best_sel * weights)
-    total_value = np.sum(best_sel * values)
-    print(f"Total weight: {total_weight}, Total value: {total_value}")
-    print(f"Feasible: {total_weight <= capacity}")
-    
-    # Test on Rastrigin
-    print("\n2. Genetic Algorithm on Rastrigin Function (2D)")
-    print("-" * 60)
-    from problems.continuous.rastrigin import RastriginProblem
-    
-    problem_rastrigin = RastriginProblem(dim=2)
-    ga_rastrigin = GeneticAlgorithmOptimizer(
-        problem=problem_rastrigin,
-        pop_size=20,
-        crossover_rate=0.8,
-        mutation_rate=0.15,
-        seed=42
-    )
-    
-    best_sol, best_fit, history_s, _ = ga_rastrigin.run(max_iter=50)
-    
-    print(f"Initial best fitness: {history_s[0]:.6f}")
-    print(f"Final best fitness: {history_s[-1]:.6f}")
-    print(f"Best solution: {best_sol}")
-    print(f"Improvement: {history_s[0] - history_s[-1]:.6f}")
-    
-    print("\n" + "=" * 60)
-    print("All Genetic Algorithm tests completed!")
-    print("=" * 60)
-    print("=" * 60)
-    values = np.array([10, 20, 30, 40, 50, 60])
-    weights = np.array([1, 2, 3, 4, 5, 6])
-    capacity = 10.0
-    problem_knapsack = KnapsackProblem(values, weights, capacity)
-    
-    ga_knapsack = GeneticAlgorithmOptimizer(
-        problem=problem_knapsack,
-        pop_size=20,
-        crossover_rate=0.7,
-        mutation_rate=0.15,
-        seed=42
-    )
-    
-    best_sel, best_fit, history_k, _ = ga_knapsack.run(max_iter=40)
-    
-    print(f"Initial best fitness: {history_k[0]:.2f}")
-    print(f"Final best fitness: {history_k[-1]:.2f}")
-    print(f"Best selection: {best_sel}")
-    total_weight = np.sum(best_sel * weights)
-    total_value = np.sum(best_sel * values)
-    print(f"Total weight: {total_weight}, Total value: {total_value}")
-    print(f"Feasible: {total_weight <= capacity}")
-    
-    # Test 3: Graph Coloring
-    print("\n3. Genetic Algorithm on Graph Coloring")
-    print("-" * 60)
-    from problems.discrete.graph_coloring import GraphColoringProblem
-    
-    # Create a cycle graph (needs 2 colors if even, 3 if odd)
-    edges = [(0, 1), (1, 2), (2, 3), (3, 0)]  # 4-cycle
-    problem_gc = GraphColoringProblem(num_nodes=4, edges=edges, num_colors=2)
-    
-    ga_gc = GeneticAlgorithmOptimizer(
-        problem=problem_gc,
-        pop_size=20,
-        crossover_rate=0.8,
-        mutation_rate=0.2,
-        seed=42
-    )
-    
-    best_coloring, best_conflicts, history_gc, _ = ga_gc.run(max_iter=30)
-    
-    print(f"Initial best conflicts: {history_gc[0]:.0f}")
-    print(f"Final best conflicts: {history_gc[-1]:.0f}")
-    print(f"Best coloring: {best_coloring}")
-    print(f"Valid 2-coloring found: {history_gc[-1] == 0}")
-    
-    # Test 4: Continuous (Sphere)
-    print("\n4. Genetic Algorithm on Sphere Function (2D)")
-    print("-" * 60)
-    from problems.continuous.sphere import SphereProblem
-    
-    problem_sphere = SphereProblem(dim=2)
-    ga_sphere = GeneticAlgorithmOptimizer(
-        problem=problem_sphere,
-        pop_size=20,
-        crossover_rate=0.8,
-        mutation_rate=0.15,
-        seed=42
-    )
-    
-    best_sol, best_fit, history_s, _ = ga_sphere.run(max_iter=50)
-    
-    print(f"Initial best fitness: {history_s[0]:.6f}")
-    print(f"Final best fitness: {history_s[-1]:.6f}")
-    print(f"Best solution: {best_sol}")
-    print(f"Improvement: {history_s[0] - history_s[-1]:.6f}")
-    
-    print("\n" + "=" * 60)
-    print("All Genetic Algorithm tests completed!")
-    print("=" * 60)
-    print("=" * 60)
-    print(f"Improvement: {history_s[0] - history_s[-1]:.6f}")
-    
-    print("\n" + "=" * 60)
-    print("All Genetic Algorithm tests completed!")
-    print("=" * 60)
-    print("=" * 60)
-    values = np.array([10, 20, 30, 40, 50, 60])
-    weights = np.array([1, 2, 3, 4, 5, 6])
-    capacity = 10.0
-    problem_knapsack = KnapsackProblem(values, weights, capacity)
-    
-    ga_knapsack = GeneticAlgorithmOptimizer(
-        problem=problem_knapsack,
-        pop_size=20,
-        crossover_rate=0.7,
-        mutation_rate=0.15,
-        seed=42
-    )
-    
-    best_sel, best_fit, history_k, _ = ga_knapsack.run(max_iter=40)
-    
-    print(f"Initial best fitness: {history_k[0]:.2f}")
-    print(f"Final best fitness: {history_k[-1]:.2f}")
-    print(f"Best selection: {best_sel}")
-    total_weight = np.sum(best_sel * weights)
-    total_value = np.sum(best_sel * values)
-    print(f"Total weight: {total_weight}, Total value: {total_value}")
-    print(f"Feasible: {total_weight <= capacity}")
-    
-    # Test 3: Graph Coloring
-    print("\n3. Genetic Algorithm on Graph Coloring")
-    print("-" * 60)
-    from problems.discrete.graph_coloring import GraphColoringProblem
-    
-    # Create a cycle graph (needs 2 colors if even, 3 if odd)
-    edges = [(0, 1), (1, 2), (2, 3), (3, 0)]  # 4-cycle
-    problem_gc = GraphColoringProblem(num_nodes=4, edges=edges, num_colors=2)
-    
-    ga_gc = GeneticAlgorithmOptimizer(
-        problem=problem_gc,
-        pop_size=20,
-        crossover_rate=0.8,
-        mutation_rate=0.2,
-        seed=42
-    )
-    
-    best_coloring, best_conflicts, history_gc, _ = ga_gc.run(max_iter=30)
-    
-    print(f"Initial best conflicts: {history_gc[0]:.0f}")
-    print(f"Final best conflicts: {history_gc[-1]:.0f}")
-    print(f"Best coloring: {best_coloring}")
-    print(f"Valid 2-coloring found: {history_gc[-1] == 0}")
-    
-    # Test 4: Continuous (Sphere)
-    print("\n4. Genetic Algorithm on Sphere Function (2D)")
-    print("-" * 60)
-    from problems.continuous.sphere import SphereProblem
-    
-    problem_sphere = SphereProblem(dim=2)
-    ga_sphere = GeneticAlgorithmOptimizer(
-        problem=problem_sphere,
-        pop_size=20,
-        crossover_rate=0.8,
-        mutation_rate=0.15,
-        seed=42
-    )
-    
-    best_sol, best_fit, history_s, _ = ga_sphere.run(max_iter=50)
-    
-    print(f"Initial best fitness: {history_s[0]:.6f}")
-    print(f"Final best fitness: {history_s[-1]:.6f}")
-    print(f"Best solution: {best_sol}")
-    print(f"Improvement: {history_s[0] - history_s[-1]:.6f}")
-    
-    print("\n" + "=" * 60)
-    print("All Genetic Algorithm tests completed!")
-    print("=" * 60)
-    print("=" * 60)

@@ -13,6 +13,7 @@ References
 import numpy as np
 from typing import List, Tuple
 import logging
+import math  # Add math import for exp
 
 from ..core.base_optimizer import BaseOptimizer
 from ..core.problem_base import ProblemBase
@@ -81,7 +82,8 @@ class SimulatedAnnealingOptimizer(BaseOptimizer):
         cooling_rate: float = 0.95,
         step_size: float = 0.1,
         min_temp: float = 1e-8,
-        repair_method: str = None,
+        repair_method: str = None,  # Deprecated
+        constraint_handling: str = "penalty",  # New: 'repair' or 'penalty'
         seed: int = None
     ):
         """Initialize Simulated Annealing optimizer."""
@@ -102,7 +104,8 @@ class SimulatedAnnealingOptimizer(BaseOptimizer):
         self.cooling_rate = cooling_rate
         self.step_size = step_size
         self.min_temp = min_temp
-        self.repair_method = repair_method
+        self.repair_method = repair_method  # Deprecated
+        self.constraint_handling = constraint_handling  # New switch
         self.seed = seed
         self.rng = np.random.RandomState(seed)
         
@@ -137,41 +140,26 @@ class SimulatedAnnealingOptimizer(BaseOptimizer):
             raise NotImplementedError(f"Unsupported problem type: {repr_type}")
     
     def _repair_knapsack(self, solution: np.ndarray) -> np.ndarray:
-        """Repair infeasible Knapsack solution using greedy removal."""
-        if self.repair_method != 'greedy_remove':
-            return solution
+        """Repair infeasible Knapsack solution based on constraint_handling."""
+        if self.constraint_handling != 'repair':
+            return solution  # Let penalty handle it
         
         if self.problem.representation_type() != 'knapsack':
             return solution
         
-        solution = solution.copy()
-        total_weight = np.sum(solution * self.problem.weights)
-        
-        if total_weight <= self.problem.capacity:
-            return solution
-        
-        indices = np.where(solution > 0)[0]
-        if len(indices) == 0:
-            return solution
-        
-        ratios = self.problem.values[indices] / (self.problem.weights[indices] + 1e-8)
-        sorted_indices = indices[np.argsort(ratios)]
-        
-        for idx in sorted_indices:
-            if total_weight <= self.problem.capacity:
-                break
-            solution[idx] = 0
-            total_weight -= self.problem.weights[idx]
-        
-        return solution
+        return self.problem.greedy_repair(solution)
     
     def _acceptance_probability(self, delta_e: float, temperature: float) -> float:
-        """Compute acceptance probability for a worse solution."""
+        """Compute acceptance probability for a worse solution with numerical stability."""
         if delta_e < 0:
             return 1.0
         else:
-            # No clamping here - we stop early instead
-            return np.exp(-delta_e / temperature)
+            # Clamp to avoid overflow: exp(-delta/T)
+            # When T → 0, delta/T → ∞, so we clamp the exponent
+            z = -delta_e / max(temperature, 1e-300)
+            # Clamp z to avoid exp overflow (exp(700) ≈ 1e304)
+            z_clamped = max(z, -700.0)
+            return math.exp(z_clamped)
     
     def run(self, max_iter: int) -> Tuple[np.ndarray, float, List[float], List[np.ndarray]]:
         """Run Simulated Annealing for max_iter iterations."""
@@ -187,15 +175,12 @@ class SimulatedAnnealingOptimizer(BaseOptimizer):
         trajectory = []
         
         for iteration in range(max_iter):
-            # Calculate temperature
+            # Calculate temperature with clamping (no break)
             temperature = self.initial_temp * (self.cooling_rate ** iteration)
-            
-            # Early stop if temperature drops below min_temp
             if temperature < self.min_temp:
-                logger.debug(f"SA: Temperature {temperature:.2e} < min_temp {self.min_temp:.2e}, stopping at iter {iteration}/{max_iter}")
-                break  # No padding - return actual history length
+                temperature = self.min_temp  # Clamp instead of breaking
             
-            # Generate neighbor
+            # Generate neighbor - this is 1 evaluation
             neighbor = self._generate_neighbor()
             neighbor = self._repair_knapsack(neighbor)
             neighbor_fitness = self.problem.evaluate(neighbor)

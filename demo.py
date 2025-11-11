@@ -118,28 +118,28 @@ def demo_fa_knapsack():
     print(f"  Total value: {np.sum(values)}")
     print("-" * 70)
     
-    # Use Firefly Algorithm
-    optimizer = FireflyKnapsackOptimizer(
-        problem=problem,
-        n_fireflies=30,
-        alpha_flip=0.2,
-        max_flips_per_move=3,
-        repair_method="greedy_remove",
-        seed=seed
-    )
-    
-    best_sol, best_fit, history, _ = optimizer.run(max_iter=100)
-    
-    total_value = -best_fit  # Negate for actual value
-    total_weight = np.sum(best_sol * weights)
-    
-    print(f"\nResults:")
-    print(f"  Initial value: {-history[0]:.2f}")
-    print(f"  Final value:   {total_value:.2f}")
-    print(f"  Improvement:   {-history[0] - (-history[-1]):.2f}")
-    print(f"  Best weight:   {total_weight:.2f} / {capacity}")
-    print(f"  Feasible:      {total_weight <= capacity}")
-    print(f"  Items selected: {np.sum(best_sol)}/{n_items}")
+    # Test both constraint handling strategies
+    for strategy in ['repair', 'penalty']:
+        print(f"\n--- Strategy: {strategy.upper()} ---")
+        
+        optimizer = FireflyKnapsackOptimizer(
+            problem=problem,
+            n_fireflies=30,
+            alpha_flip=0.2,
+            max_flips_per_move=3,
+            constraint_handling=strategy,  # Use the switch
+            seed=seed
+        )
+        
+        best_sol, best_fit, history, _ = optimizer.run(max_iter=100)
+        
+        total_value = -best_fit
+        total_weight = np.sum(best_sol * weights)
+        
+        print(f"\nResults ({strategy}):")
+        print(f"  Final value:   {total_value:.2f}")
+        print(f"  Best weight:   {total_weight:.2f} / {capacity}")
+        print(f"  Feasible:      {total_weight <= capacity}")
     
     # Visualize convergence
     plot_convergence(

@@ -45,9 +45,9 @@ def load_json_safe(filepath: Path) -> Optional[dict]:
 def get_rastrigin_raw_data(results_dir: str, config_name: str) -> Dict:
     """
     Load Rastrigin results from files matching pattern:
-    rastrigin_{config_name}_{algo}_{timestamp}.json
+    rastrigin_{config_name}_{algo}_{scenario}_{timestamp}.json
     
-    Returns: {algo: {'histories': [...], 'error_to_optimum': [...]}}
+    Returns: {algo: {'histories': [...], 'error_to_optimum': [...], 'success_levels': {...}}}
     """
     results_path = Path(results_dir) / 'rastrigin'
     if not results_path.exists():
@@ -112,6 +112,15 @@ def get_rastrigin_raw_data(results_dir: str, config_name: str) -> Dict:
                 raw_data[algo]['histories'].append(list(history))
             if final_error is not None:
                 raw_data[algo]['error_to_optimum'].append(float(final_error))
+            
+            # NEW: Extract success_levels if present
+            if 'success_levels' in run:
+                if 'success_levels' not in raw_data[algo]:
+                    raw_data[algo]['success_levels'] = {}
+                for level, level_data in run['success_levels'].items():
+                    if level not in raw_data[algo]['success_levels']:
+                        raw_data[algo]['success_levels'][level] = []
+                    raw_data[algo]['success_levels'][level].append(level_data)
     
     return dict(raw_data)
 

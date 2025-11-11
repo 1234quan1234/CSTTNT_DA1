@@ -71,7 +71,7 @@ def solve_knapsack_dp(values, weights, capacity):
     return optimal_value, selection
 
 
-def run_single_knapsack_experiment(algo_name, problem, params, seed, max_iter, instance_seed):
+def run_single_knapsack_experiment(algo_name, problem, params, seed, max_iter, instance_seed, constraint_handling='penalty'):
     """
     Run single Knapsack experiment with status tracking.
     
@@ -79,6 +79,8 @@ def run_single_knapsack_experiment(algo_name, problem, params, seed, max_iter, i
     ----------
     instance_seed : int
         Seed used for instance generation (for tracking)
+    constraint_handling : str
+        'repair' or 'penalty' - controls constraint handling strategy
         
     Returns
     -------
@@ -136,7 +138,12 @@ def run_single_knapsack_experiment(algo_name, problem, params, seed, max_iter, i
         rng = np.random.default_rng(seed)
         np.random.seed(seed)  # Fallback for code using global np.random
         
-        optimizer = algo_map[algo_name](problem=problem, seed=seed, **params)
+        optimizer = algo_map[algo_name](
+            problem=problem, 
+            seed=seed, 
+            constraint_handling=constraint_handling,  # Pass the switch
+            **params
+        )
         
         start_time = time.time()
         best_sol, best_fitness, history, _ = optimizer.run(max_iter=max_iter)
@@ -223,14 +230,15 @@ def run_single_knapsack_experiment(algo_name, problem, params, seed, max_iter, i
         return base_result
 
 
-def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='benchmark/results', n_jobs=None, config_name=None):
+def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='benchmark/results', 
+                          n_jobs=None, config_name=None, constraint_handling='penalty'):
     """
     Run Knapsack benchmark with parallel execution.
     
     Parameters
     ----------
     size : int or str
-        Number of items (50, 100, 200, 500, or 'all')
+        Number of items (50, 100, 200, or 'all')
     instance_type : str
         Instance type
     output_dir : str
@@ -239,6 +247,8 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
         Number of parallel jobs
     config_name : str, optional
         Config name ('small', 'medium', 'large'). If provided, overrides size/instance_type.
+    constraint_handling : str, optional
+        'repair' or 'penalty' or 'both' - controls constraint handling strategy
     """
     
     # Map config_name to size/instance_type if provided
@@ -270,12 +280,19 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
     print(f"Runs per config: 30")
     print(f"Total experiments: {len(all_configs) * 4 * 30}")
     print(f"Timestamp: {timestamp}")
+    print(f"Constraint handling: {constraint_handling}")
     
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
     if n_jobs is None:
         n_jobs = max(1, mp.cpu_count() - 1)
+    
+    # Determine which strategies to run
+    if constraint_handling == 'both':
+        strategies = ['repair', 'penalty']
+    else:
+        strategies = [constraint_handling]
     
     for config_idx, config in enumerate(all_configs, 1):
         print(f"\n{'-' * 70}")
@@ -315,115 +332,119 @@ def run_knapsack_benchmark(size=50, instance_type='uncorrelated', output_dir='be
         
         seeds = list(range(30))
         
-        # Run experiments for each algorithm IN PARALLEL
-        for algo_name, (algo_params, max_iter) in algorithms.items():
-            print(f"\nRunning {algo_name} ({len(seeds)} runs in parallel)...")
+        # Run experiments for each strategy
+        for strategy in strategies:
+            print(f"\nStrategy: {strategy.upper()}")
             
-            # Extract pop_size for metadata
-            if algo_name == 'FA':
-                pop_size = algo_params['n_fireflies']
-            elif algo_name == 'GA':
-                pop_size = algo_params['pop_size']
-            else:
-                pop_size = 1
-            
-            # Prepare arguments for parallel execution (NOW includes instance_seed)
-            args_list = [
-                (algo_name, problem, algo_params, seed, max_iter, config.seed)
-                for seed in seeds
-            ]
-            
-            # Run in parallel
-            try:
-                with mp.Pool(processes=n_jobs) as pool:
-                    all_results = pool.starmap(run_single_knapsack_experiment, args_list)
-            except Exception as e:
-                logger.error(f"Parallel execution failed for {algo_name}: {e}")
-                continue
-            
-            # Separate successful and failed results
-            successful_results = [r for r in all_results if r['status'] == 'ok']
-            failed_results = [r for r in all_results if r['status'] != 'ok']
-            
-            # Status breakdown
-            status_counts = {}
-            for r in all_results:
-                status = r['status']
-                status_counts[status] = status_counts.get(status, 0) + 1
-            
-            # Add DP optimal gap if available (only for successful results)
-            gap_results = all_results.copy()
-            if dp_optimal_value is not None:
-                for r in gap_results:
-                    if r['status'] == 'ok' and r['best_value'] is not None:
-                        r['optimality_gap'] = float((dp_optimal_value - r['best_value']) / dp_optimal_value * 100)
-                    else:
-                        r['optimality_gap'] = None
-            
-            # Calculate average budget utilization (only for successful runs)
-            avg_budget_util = np.mean([r['budget_utilization'] for r in successful_results]) if successful_results else 0.0
-            
-            if len(failed_results) > 0:
-                logger.warning(f"{algo_name}: {len(failed_results)}/{len(seeds)} runs failed")
-            
-            if len(successful_results) == 0:
-                logger.error(f"{algo_name}: All runs failed, but still saving results")
-            
-            # New naming: knapsack_n{size}_{type}_seed{seed}_{algo}_{timestamp}.json
-            filename = f"knapsack_n{config.n_items}_{config.instance_type}_seed{config.seed}_{algo_name}_{timestamp}.json"
-            result_file = output_path / filename
-            
-            # Add metadata (includes instance_seed and status breakdown)
-            output_data = {
-                'metadata': {
-                    'problem': 'knapsack',
-                    'n_items': int(config.n_items),
-                    'instance_type': str(config.instance_type),
-                    'instance_seed': int(config.seed),
-                    'algorithm': algo_name,
-                    'timestamp': timestamp,
-                    'budget': int(config.budget),
-                    'max_iter': int(max_iter),
-                    'pop_size': int(pop_size),
-                    'dp_optimal': float(dp_optimal_value) if dp_optimal_value is not None else None,
-                    'has_dp_optimal': config.has_dp_optimal,
-                    'n_runs': len(seeds),
-                    'n_successful': len(successful_results),
-                    'n_failed': len(failed_results),
-                    'status_breakdown': status_counts,
-                    'avg_budget_utilization': float(avg_budget_util)
-                },
-                'all_results': gap_results  # All results including failed ones
-            }
-            
-            with open(result_file, 'w') as f:
-                json.dump(output_data, f, indent=2)
-            
-            print(f"  Saved: {filename}")
-            
-            # Print summary (includes status breakdown)
-            if successful_results:
-                values_list = [r['best_value'] for r in successful_results]
-                feasible_count = sum(1 for r in successful_results if r['is_feasible'])
+            # Run experiments for each algorithm IN PARALLEL
+            for algo_name, (algo_params, max_iter) in algorithms.items():
+                print(f"\nRunning {algo_name} with {strategy} strategy ({len(seeds)} runs in parallel)...")
                 
-                print(f"\n    Summary for {algo_name}:")
-                print(f"      Mean ± Std: {np.mean(values_list):.2f} ± {np.std(values_list):.2f}")
-                print(f"      Median: {np.median(values_list):.2f}")
-                print(f"      Best: {np.max(values_list):.2f}")
-                print(f"      Worst: {np.min(values_list):.2f}")
-                print(f"      Feasibility: {feasible_count}/{len(successful_results)} ({feasible_count/len(successful_results)*100:.1f}%)")
+                # Extract pop_size for metadata
+                if algo_name == 'FA':
+                    pop_size = algo_params['n_fireflies']
+                elif algo_name == 'GA':
+                    pop_size = algo_params['pop_size']
+                else:
+                    pop_size = 1
                 
+                # Prepare arguments for parallel execution (NOW includes instance_seed)
+                args_list = [
+                    (algo_name, problem, algo_params, seed, max_iter, config.seed, strategy)
+                    for seed in seeds
+                ]
+                
+                # Run in parallel
+                try:
+                    with mp.Pool(processes=n_jobs) as pool:
+                        all_results = pool.starmap(run_single_knapsack_experiment, args_list)
+                except Exception as e:
+                    logger.error(f"Parallel execution failed for {algo_name}: {e}")
+                    continue
+                
+                # Separate successful and failed results
+                successful_results = [r for r in all_results if r['status'] == 'ok']
+                failed_results = [r for r in all_results if r['status'] != 'ok']
+                
+                # Status breakdown
+                status_counts = {}
+                for r in all_results:
+                    status = r['status']
+                    status_counts[status] = status_counts.get(status, 0) + 1
+                
+                # Add DP optimal gap if available (only for successful results)
+                gap_results = all_results.copy()
                 if dp_optimal_value is not None:
-                    gaps = [r['optimality_gap'] for r in gap_results if r['status'] == 'ok' and r['optimality_gap'] is not None]
-                    if gaps:
-                        print(f"      Avg gap: {np.mean(gaps):.2f}%")
+                    for r in gap_results:
+                        if r['status'] == 'ok' and r['best_value'] is not None:
+                            r['optimality_gap'] = float((dp_optimal_value - r['best_value']) / dp_optimal_value * 100)
+                        else:
+                            r['optimality_gap'] = None
                 
-                print(f"      Avg time: {np.mean([r['elapsed_time'] for r in successful_results]):.2f}s")
-                print(f"      Budget util: {avg_budget_util:.2%}")
-            
-            # Status breakdown
-            status_str = ", ".join([f"{count} {status}" for status, count in status_counts.items()])
-            print(f"    Status breakdown: {status_str}")
+                # Calculate average budget utilization (only for successful runs)
+                avg_budget_util = np.mean([r['budget_utilization'] for r in successful_results]) if successful_results else 0.0
+                
+                if len(failed_results) > 0:
+                    logger.warning(f"{algo_name}: {len(failed_results)}/{len(seeds)} runs failed")
+                
+                if len(successful_results) == 0:
+                    logger.error(f"{algo_name}: All runs failed, but still saving results")
+                
+                # New naming: knapsack_n{size}_{type}_seed{seed}_{algo}_{timestamp}.json
+                filename = f"knapsack_n{config.n_items}_{config.instance_type}_seed{config.seed}_{algo_name}_{strategy}_{timestamp}.json"
+                result_file = output_path / filename
+                
+                # Add metadata (includes instance_seed and status breakdown)
+                output_data = {
+                    'metadata': {
+                        'problem': 'knapsack',
+                        'n_items': int(config.n_items),
+                        'instance_type': str(config.instance_type),
+                        'instance_seed': int(config.seed),
+                        'algorithm': algo_name,
+                        'timestamp': timestamp,
+                        'budget': int(config.budget),
+                        'max_iter': int(max_iter),
+                        'pop_size': int(pop_size),
+                        'dp_optimal': float(dp_optimal_value) if dp_optimal_value is not None else None,
+                        'has_dp_optimal': config.has_dp_optimal,
+                        'n_runs': len(seeds),
+                        'n_successful': len(successful_results),
+                        'n_failed': len(failed_results),
+                        'status_breakdown': status_counts,
+                        'avg_budget_utilization': float(avg_budget_util)
+                    },
+                    'all_results': gap_results  # All results including failed ones
+                }
+                
+                with open(result_file, 'w') as f:
+                    json.dump(output_data, f, indent=2)
+                
+                print(f"  Saved: {filename}")
+                
+                # Print summary (includes status breakdown)
+                if successful_results:
+                    values_list = [r['best_value'] for r in successful_results]
+                    feasible_count = sum(1 for r in successful_results if r['is_feasible'])
+                    
+                    print(f"\n    Summary for {algo_name}:")
+                    print(f"      Mean ± Std: {np.mean(values_list):.2f} ± {np.std(values_list):.2f}")
+                    print(f"      Median: {np.median(values_list):.2f}")
+                    print(f"      Best: {np.max(values_list):.2f}")
+                    print(f"      Worst: {np.min(values_list):.2f}")
+                    print(f"      Feasibility: {feasible_count}/{len(successful_results)} ({feasible_count/len(successful_results)*100:.1f}%)")
+                    
+                    if dp_optimal_value is not None:
+                        gaps = [r['optimality_gap'] for r in gap_results if r['status'] == 'ok' and r['optimality_gap'] is not None]
+                        if gaps:
+                            print(f"      Avg gap: {np.mean(gaps):.2f}%")
+                    
+                    print(f"      Avg time: {np.mean([r['elapsed_time'] for r in successful_results]):.2f}s")
+                    print(f"      Budget util: {avg_budget_util:.2%}")
+                
+                # Status breakdown
+                status_str = ", ".join([f"{count} {status}" for status, count in status_counts.items()])
+                print(f"    Status breakdown: {status_str}")
     
     print(f"\n{'=' * 70}")
     print(f"Knapsack benchmark complete! Results saved to: {output_path}")
@@ -439,13 +460,22 @@ if __name__ == "__main__":
     parser.add_argument('--type', type=str, default='all',
                         choices=['all', 'uncorrelated', 'weakly', 'strongly', 'subset'],
                         help='Instance type')
-    parser.add_argument('--output', type=str, default='benchmark/results',
+    parser.add_argument('--output', type=str, default='benchmark/results/knapsack',
                         help='Output directory')
     parser.add_argument('--jobs', type=int, default=None,
                         help='Number of parallel jobs (default: CPU count - 1)')
+    parser.add_argument('--constraint', type=str, default='penalty',
+                        choices=['repair', 'penalty', 'both'],
+                        help='Constraint handling: repair, penalty, or both')
     
     args = parser.parse_args()
     
     size = 'all' if args.size == 'all' else int(args.size)
     
-    run_knapsack_benchmark(size=size, instance_type=args.type, output_dir=args.output, n_jobs=args.jobs)
+    run_knapsack_benchmark(
+        size=size, 
+        instance_type=args.type, 
+        output_dir=args.output, 
+        n_jobs=args.jobs,
+        constraint_handling=args.constraint
+    )

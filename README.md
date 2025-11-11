@@ -262,13 +262,13 @@ problem = KnapsackProblem(values, weights, capacity)
 dp_optimal = problem.solve_dp()
 print(f"DP Optimal: {dp_optimal}")
 
-# Create optimizer with discrete-specific parameters
+# Create optimizer with REPAIR strategy (fair comparison)
 optimizer = FireflyKnapsackOptimizer(
     problem=problem,
     n_fireflies=60,
-    alpha_flip=0.2,           # Random bit flip probability
-    max_flips_per_move=3,     # Directed flips per attraction
-    repair_method="greedy_remove",  # Constraint repair strategy
+    alpha_flip=0.2,
+    max_flips_per_move=3,
+    constraint_handling="repair",  # NEW: 'repair' or 'penalty'
     seed=42
 )
 
@@ -283,6 +283,34 @@ print(f"Best value: {total_value:.0f} (DP: {dp_optimal:.0f})")
 print(f"Optimality gap: {optimality_gap:.2f}%")
 print(f"Weight: {total_weight:.0f}/{capacity} ({total_weight/capacity*100:.1f}%)")
 print(f"Items selected: {np.sum(best_sol)}/{n_items}")
+```
+
+**Constraint Handling Strategies:**
+
+The framework supports two strategies for handling Knapsack capacity constraints:
+
+1. **Repair Strategy** (`constraint_handling="repair"`):
+   - Infeasible solutions are repaired using greedy removal
+   - Ensures all solutions are feasible
+   - Fair comparison across all algorithms
+   - Recommended for benchmarking
+
+2. **Penalty Strategy** (`constraint_handling="penalty"`):
+   - Infeasible solutions receive large penalty
+   - Allows exploration of infeasible space
+   - May find better solutions by "cutting corners"
+   - Original implementation behavior
+
+**Run benchmarks with both strategies:**
+```bash
+# Repair strategy only (fair comparison)
+python benchmark/run_knapsack.py --size 50 --constraint repair
+
+# Penalty strategy only (original behavior)
+python benchmark/run_knapsack.py --size 50 --constraint penalty
+
+# Both strategies for comparison
+python benchmark/run_knapsack.py --size 50 --constraint both
 ```
 
 ### Example 3: Compare All Algorithms
@@ -323,11 +351,16 @@ print(f"GA: {abs(ga_fit):.6f}")
 
 ### Rastrigin Configurations
 
-| Config Name | Dimension | Budget (evals) | Max Iter | Target Error | Purpose |
-|-------------|-----------|----------------|----------|--------------|---------|
-| `quick_convergence` | 10 | 5,000 | 125 | 10.0 | Fast convergence test |
-| `multimodal_escape` | 30 | 20,000 | 500 | 50.0 | Escape local minima |
-| `scalability` | 50 | 40,000 | 1,000 | 100.0 | High-dimensional scaling |
+| Config Name | Dimension | Budget (evals) | Max Iter | Success Thresholds | Purpose |
+|-------------|-----------|----------------|----------|--------------------|---------|
+| `quick_convergence` | 10 | 10,000 | 250 | Gold: 1.0, Silver: 5.0, Bronze: 10.0 | Fast convergence test |
+| `multimodal_escape` | 30 | 30,000 | 500 | Gold: 1.0, Silver: 10.0, Bronze: 50.0 | Escape local minima |
+| `scalability` | 50 | 50,000 | 625 | Gold: 10.0, Silver: 50.0, Bronze: 100.0 | High-dimensional scaling |
+
+**Success Levels:**
+- **Gold** 🥇: Very close to global optimum (toughest threshold)
+- **Silver** 🥈: Escaped bad regions, found good local minimum
+- **Bronze** 🥉: Escaped worst regions (most lenient threshold)
 
 **Algorithm Parameters:**
 - **FA**: n_fireflies=40, α=0.3, β₀=1.0, γ=1.0
@@ -361,7 +394,7 @@ All benchmark results are saved in JSON format for reproducibility.
 
 ### Rastrigin Results
 
-**File naming:** `benchmark/results/rastrigin/rastrigin_{config}_{algo}_{timestamp}.json`
+**File naming:** `benchmark/results/rastrigin/rastrigin_{config}_{algo}_{scenario}_{timestamp}.json`
 
 ```json
 {
@@ -369,6 +402,7 @@ All benchmark results are saved in JSON format for reproducibility.
     "problem": "rastrigin",
     "config_name": "quick_convergence",
     "algorithm": "FA",
+    "scenario": "out_of_the_box",
     "timestamp": "20251110T200402",
     "dimension": 10,
     "budget": 10000,
@@ -383,7 +417,11 @@ All benchmark results are saved in JSON format for reproducibility.
       "timeout": 1,
       "nan": 1
     },
-    "threshold": 10.0,
+    "thresholds_used": {
+      "gold": 1.0,
+      "silver": 5.0,
+      "bronze": 10.0
+    },
     "avg_budget_utilization": 0.998
   },
   "all_results": [
@@ -398,16 +436,26 @@ All benchmark results are saved in JSON format for reproducibility.
       "evaluations": 10000,
       "budget": 10000,
       "budget_utilization": 1.0,
-      "success": true,
-      "hit_evaluations": 8200,
+      "success_levels": {
+        "gold": {
+          "success": false,
+          "threshold": 1.0,
+          "hit_evaluations": null
+        },
+        "silver": {
+          "success": false,
+          "threshold": 5.0,
+          "hit_evaluations": null
+        },
+        "bronze": {
+          "success": true,
+          "threshold": 10.0,
+          "hit_evaluations": 8200
+        }
+      },
       "status": "ok",
       "error_type": null,
       "error_msg": null
-    },
-    {
-      "algorithm": "FA",
-      "seed": 1,
-      ...
     }
   ]
 }
