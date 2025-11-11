@@ -11,13 +11,13 @@ References
 
 import numpy as np
 from typing import List, Tuple
+import logging
 
-# Use relative imports
 from ..core.base_optimizer import BaseOptimizer
 from ..core.problem_base import ProblemBase
 from ..core.utils import get_best_solution
-from typing import List, Tuple, Literal
 
+logger = logging.getLogger(__name__)
 
 class GeneticAlgorithmOptimizer(BaseOptimizer):
     """
@@ -84,19 +84,32 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         pop_size: int = 50,
         crossover_rate: float = 0.8,
         mutation_rate: float = 0.1,
-        selection_type: Literal["tournament", "roulette"] = "tournament",
+        elitism: int | bool = True,
         tournament_size: int = 3,
-        elitism: int = 1,
+        selection_type: str = "tournament",
+        repair_method: str = None,
         seed: int = None
     ):
         """Initialize Genetic Algorithm optimizer."""
+        # Validate selection_type
+        if selection_type not in ["tournament", "roulette"]:
+            raise ValueError(f"selection_type must be 'tournament' or 'roulette', got '{selection_type}'")
+        
         self.problem = problem
         self.pop_size = pop_size
         self.crossover_rate = crossover_rate
         self.mutation_rate = mutation_rate
-        self.selection_type = selection_type
+        
+        # Handle elitism (bool or int)
+        if isinstance(elitism, bool):
+            self.elitism = 1 if elitism else 0
+            logger.debug(f"GA: Converted elitism {elitism} → {self.elitism}")
+        else:
+            self.elitism = int(elitism)
+        
         self.tournament_size = tournament_size
-        self.elitism = elitism
+        self.selection_type = selection_type
+        self.repair_method = repair_method
         self.seed = seed
         self.rng = np.random.RandomState(seed)
         
@@ -147,14 +160,24 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         
         return offspring1, offspring2
     
+    def _crossover_discrete(self, parent1: np.ndarray, parent2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Discrete crossover (one-point for Knapsack) with repair."""
+        point = self.rng.randint(1, len(parent1))
+        child1 = np.concatenate([parent1[:point], parent2[point:]])
+        child2 = np.concatenate([parent2[:point], parent1[point:]])
+        
+        child1 = self._repair_knapsack(child1)
+        child2 = self._repair_knapsack(child2)
+        
+        return child1, child2
+    
     def _crossover(self, parent1: np.ndarray, parent2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Apply crossover based on problem type."""
         repr_type = self.problem.representation_type()
         
         if repr_type == "knapsack":
-            return self._crossover_binary_onepoint(parent1, parent2)
+            return self._crossover_discrete(parent1, parent2)
         elif repr_type == "continuous":
-            # Blend crossover for continuous
             alpha = self.rng.rand()
             offspring1 = alpha * parent1 + (1 - alpha) * parent2
             offspring2 = (1 - alpha) * parent1 + alpha * parent2
@@ -165,11 +188,12 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
     # ========== Mutation Operators ==========
     
     def _mutate_knapsack(self, individual: np.ndarray) -> np.ndarray:
-        """Mutation for Knapsack: flip one random bit."""
+        """Mutation for Knapsack: per-gene bit flip with repair."""
         mutated = individual.copy()
-        idx = self.rng.randint(len(mutated))
-        mutated[idx] = 1 - mutated[idx]
-        return mutated
+        for i in range(len(mutated)):
+            if self.rng.rand() < self.mutation_rate:
+                mutated[i] = 1 - mutated[i]
+        return self._repair_knapsack(mutated)
     
     def _mutate_continuous(self, individual: np.ndarray) -> np.ndarray:
         """Mutation for continuous: add Gaussian noise."""
@@ -183,7 +207,7 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         if repr_type == "knapsack":
             return self._mutate_knapsack(individual)
         elif repr_type == "continuous":
-            return self._mutate_continuous(individual)
+            return self.mutate_continuous(individual)
         else:
             raise NotImplementedError(f"Mutation not implemented for {repr_type}")
     
@@ -321,6 +345,27 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("All Genetic Algorithm tests completed!")
     print("=" * 60)
+    print("=" * 60)
+    values = np.array([10, 20, 30, 40, 50, 60])
+    weights = np.array([1, 2, 3, 4, 5, 6])
+    capacity = 10.0
+    problem_knapsack = KnapsackProblem(values, weights, capacity)
+    
+    ga_knapsack = GeneticAlgorithmOptimizer(
+        problem=problem_knapsack,
+        pop_size=20,
+        crossover_rate=0.7,
+        mutation_rate=0.15,
+        seed=42
+    )
+    
+    best_sel, best_fit, history_k, _ = ga_knapsack.run(max_iter=40)
+    
+    print(f"Initial best fitness: {history_k[0]:.2f}")
+    print(f"Final best fitness: {history_k[-1]:.2f}")
+    print(f"Best selection: {best_sel}")
+    total_weight = np.sum(best_sel * weights)
+    total_value = np.sum(best_sel * values)
     print(f"Total weight: {total_weight}, Total value: {total_value}")
     print(f"Feasible: {total_weight <= capacity}")
     
@@ -367,6 +412,12 @@ if __name__ == "__main__":
     print(f"Initial best fitness: {history_s[0]:.6f}")
     print(f"Final best fitness: {history_s[-1]:.6f}")
     print(f"Best solution: {best_sol}")
+    print(f"Improvement: {history_s[0] - history_s[-1]:.6f}")
+    
+    print("\n" + "=" * 60)
+    print("All Genetic Algorithm tests completed!")
+    print("=" * 60)
+    print("=" * 60)
     print(f"Improvement: {history_s[0] - history_s[-1]:.6f}")
     
     print("\n" + "=" * 60)

@@ -12,11 +12,12 @@ References
 
 import numpy as np
 from typing import List, Tuple
+import logging
 
-# Use relative imports
 from ..core.base_optimizer import BaseOptimizer
 from ..core.problem_base import ProblemBase
 
+logger = logging.getLogger(__name__)
 
 class SimulatedAnnealingOptimizer(BaseOptimizer):
     """
@@ -79,13 +80,29 @@ class SimulatedAnnealingOptimizer(BaseOptimizer):
         initial_temp: float = 100.0,
         cooling_rate: float = 0.95,
         step_size: float = 0.1,
+        min_temp: float = 1e-8,
+        repair_method: str = None,
         seed: int = None
     ):
         """Initialize Simulated Annealing optimizer."""
+        # Validate parameters
+        if initial_temp <= 0:
+            raise ValueError(f"initial_temp must be > 0, got {initial_temp}")
+        if not 0 < cooling_rate < 1:
+            raise ValueError(f"cooling_rate must be in (0, 1), got {cooling_rate}")
+        if min_temp <= 0:
+            raise ValueError(f"min_temp must be > 0, got {min_temp}")
+        if initial_temp <= min_temp:
+            raise ValueError(f"initial_temp ({initial_temp}) must be > min_temp ({min_temp})")
+        if step_size <= 0:
+            raise ValueError(f"step_size must be > 0, got {step_size}")
+        
         self.problem = problem
         self.initial_temp = initial_temp
         self.cooling_rate = cooling_rate
         self.step_size = step_size
+        self.min_temp = min_temp
+        self.repair_method = repair_method
         self.seed = seed
         self.rng = np.random.RandomState(seed)
         
@@ -119,54 +136,50 @@ class SimulatedAnnealingOptimizer(BaseOptimizer):
         else:
             raise NotImplementedError(f"Unsupported problem type: {repr_type}")
     
+    def _repair_knapsack(self, solution: np.ndarray) -> np.ndarray:
+        """Repair infeasible Knapsack solution using greedy removal."""
+        if self.repair_method != 'greedy_remove':
+            return solution
+        
+        if self.problem.representation_type() != 'knapsack':
+            return solution
+        
+        solution = solution.copy()
+        total_weight = np.sum(solution * self.problem.weights)
+        
+        if total_weight <= self.problem.capacity:
+            return solution
+        
+        indices = np.where(solution > 0)[0]
+        if len(indices) == 0:
+            return solution
+        
+        ratios = self.problem.values[indices] / (self.problem.weights[indices] + 1e-8)
+        sorted_indices = indices[np.argsort(ratios)]
+        
+        for idx in sorted_indices:
+            if total_weight <= self.problem.capacity:
+                break
+            solution[idx] = 0
+            total_weight -= self.problem.weights[idx]
+        
+        return solution
+    
     def _acceptance_probability(self, delta_e: float, temperature: float) -> float:
-        """
-        Compute acceptance probability for a worse solution.
-        
-        Parameters
-        ----------
-        delta_e : float
-            Change in fitness (new_fitness - current_fitness).
-        temperature : float
-            Current temperature.
-        
-        Returns
-        -------
-        probability : float
-            Acceptance probability.
-        """
+        """Compute acceptance probability for a worse solution."""
         if delta_e < 0:
-            # Better solution, always accept
             return 1.0
         else:
-            # Worse solution, accept with probability exp(-ΔE/T)
+            # No clamping here - we stop early instead
             return np.exp(-delta_e / temperature)
     
     def run(self, max_iter: int) -> Tuple[np.ndarray, float, List[float], List[np.ndarray]]:
-        """
-        Run Simulated Annealing for max_iter iterations.
-        
-        Parameters
-        ----------
-        max_iter : int
-            Maximum number of iterations.
-        
-        Returns
-        -------
-        best_solution : np.ndarray
-            Best solution found.
-        best_fitness : float
-            Best fitness value (minimum).
-        history_best : List[float]
-            Best fitness at each iteration.
-        trajectory : List[np.ndarray]
-            Current solution at each iteration, shape (1, problem_size).
-        """
-        # Initialize with random solution
+        """Run Simulated Annealing for max_iter iterations."""
+        # Initialize
         self.current_solution = self.problem.init_solution(self.rng, n=1)[0]
+        self.current_solution = self._repair_knapsack(self.current_solution)
         self.current_fitness = self.problem.evaluate(self.current_solution)
         
-        # Track best solution
         self.best_solution = self.current_solution.copy()
         self.best_fitness = self.current_fitness
         
@@ -174,30 +187,32 @@ class SimulatedAnnealingOptimizer(BaseOptimizer):
         trajectory = []
         
         for iteration in range(max_iter):
-            # Calculate current temperature
+            # Calculate temperature
             temperature = self.initial_temp * (self.cooling_rate ** iteration)
+            
+            # Early stop if temperature drops below min_temp
+            if temperature < self.min_temp:
+                logger.debug(f"SA: Temperature {temperature:.2e} < min_temp {self.min_temp:.2e}, stopping at iter {iteration}/{max_iter}")
+                break  # No padding - return actual history length
             
             # Generate neighbor
             neighbor = self._generate_neighbor()
+            neighbor = self._repair_knapsack(neighbor)
             neighbor_fitness = self.problem.evaluate(neighbor)
             
-            # Compute fitness change
+            # Acceptance decision
             delta_e = neighbor_fitness - self.current_fitness
-            
-            # Accept or reject
             accept_prob = self._acceptance_probability(delta_e, temperature)
             
             if self.rng.rand() < accept_prob:
-                # Accept the neighbor
                 self.current_solution = neighbor
                 self.current_fitness = neighbor_fitness
                 
-                # Update best if needed
                 if self.current_fitness < self.best_fitness:
                     self.best_solution = self.current_solution.copy()
                     self.best_fitness = self.current_fitness
             
-            # Track progress (always track best found so far)
+            # Track progress
             history_best.append(self.best_fitness)
             trajectory.append(self.current_solution.reshape(1, -1).copy())
         

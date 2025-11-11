@@ -11,10 +11,12 @@ References
 
 import numpy as np
 from typing import List, Tuple
+import logging
 
-# Use relative imports
 from ..core.base_optimizer import BaseOptimizer
 from ..core.problem_base import ProblemBase
+
+logger = logging.getLogger(__name__)
 
 
 class HillClimbingOptimizer(BaseOptimizer):
@@ -70,6 +72,7 @@ class HillClimbingOptimizer(BaseOptimizer):
         step_size: float = 0.1,
         num_neighbors: int = 10,
         restart_interval: int = None,
+        repair_method: str = None,
         seed: int = None
     ):
         """Initialize Hill Climbing optimizer."""
@@ -77,6 +80,7 @@ class HillClimbingOptimizer(BaseOptimizer):
         self.step_size = step_size
         self.num_neighbors = num_neighbors
         self.restart_interval = restart_interval
+        self.repair_method = repair_method
         self.seed = seed
         self.rng = np.random.RandomState(seed)
         
@@ -85,6 +89,35 @@ class HillClimbingOptimizer(BaseOptimizer):
         self.best_solution = None
         self.best_fitness = None
         self.no_improvement_count = 0
+    
+    def _repair_knapsack(self, solution: np.ndarray) -> np.ndarray:
+        """Repair infeasible Knapsack solution using greedy removal."""
+        if self.repair_method != 'greedy_remove':
+            return solution
+        
+        if self.problem.representation_type() != 'knapsack':
+            return solution
+        
+        solution = solution.copy()
+        total_weight = np.sum(solution * self.problem.weights)
+        
+        if total_weight <= self.problem.capacity:
+            return solution
+        
+        indices = np.where(solution > 0)[0]
+        if len(indices) == 0:
+            return solution
+        
+        ratios = self.problem.values[indices] / (self.problem.weights[indices] + 1e-8)
+        sorted_indices = indices[np.argsort(ratios)]
+        
+        for idx in sorted_indices:
+            if total_weight <= self.problem.capacity:
+                break
+            solution[idx] = 0
+            total_weight -= self.problem.weights[idx]
+        
+        return solution
     
     def _generate_neighbor_continuous(self) -> np.ndarray:
         """Generate a neighbor for continuous problems by adding Gaussian noise."""
@@ -98,7 +131,7 @@ class HillClimbingOptimizer(BaseOptimizer):
         neighbor = self.current_solution.copy()
         flip_idx = self.rng.randint(len(neighbor))
         neighbor[flip_idx] = 1 - neighbor[flip_idx]
-        return neighbor
+        return self._repair_knapsack(neighbor)  # Apply repair
     
     def _generate_neighbor(self) -> np.ndarray:
         """Generate a neighbor based on problem type."""
@@ -133,6 +166,7 @@ class HillClimbingOptimizer(BaseOptimizer):
         """
         # Initialize with random solution
         self.current_solution = self.problem.init_solution(self.rng, n=1)[0]
+        self.current_solution = self._repair_knapsack(self.current_solution)  # Repair initial
         self.current_fitness = self.problem.evaluate(self.current_solution)
         
         # Track best solution
@@ -149,6 +183,7 @@ class HillClimbingOptimizer(BaseOptimizer):
                 self.no_improvement_count >= self.restart_interval):
                 # Restart from random solution
                 self.current_solution = self.problem.init_solution(self.rng, n=1)[0]
+                self.current_solution = self._repair_knapsack(self.current_solution)  # Repair after restart
                 self.current_fitness = self.problem.evaluate(self.current_solution)
                 self.no_improvement_count = 0
             
