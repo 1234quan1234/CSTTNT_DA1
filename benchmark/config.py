@@ -256,151 +256,185 @@ RASTRIGIN_CONFIGS = {
         budget=10000,
         max_iter=250,
         thresholds={
-            'gold': 1.0,      # Very close to optimum
-            'silver': 10.0,    # Escaped bad regions, found good local minimum
-            'bronze': 30.0    # Escaped worst regions
+            'gold': 1.0,
+            'silver': 10.0,
+            'bronze': 30.0
         },
         seeds=list(range(30)),
+
+        # === FA: giữ pop, hạ gamma, alpha vừa phải ===
         fa_params={
             'n_fireflies': 40,
-            'alpha': 0.2,
+            'alpha': 0.18,
             'beta0': 1.0,
-            'gamma': 1.0
+            'gamma': 0.02
         },
+
+        # === SA: chậm hơn một nấc, T_min thấp để tận dụng hết vòng lặp ===
         sa_params={
-            'initial_temp': 100.0,
-            'cooling_rate': 0.95,
-            'min_temp': 1.0
+            'initial_temp': 100.0,   # ≈ 10*D
+            'cooling_rate': 0.97,
+            'min_temp': 1e-3
         },
+
+        # === HC: khoảng 3*D láng giềng, restart sớm hơn ===
         hc_params={
-            'num_neighbors': 20,
-            'restart_interval': 50
+            'num_neighbors': 30,
+            'restart_interval': 30
         },
+
+        # === GA: crossover cao; mutation quanh 1/D (~0.1) ===
         ga_params={
             'pop_size': 40,
-            'crossover_rate': 0.8,
-            'mutation_rate': 0.1,
+            'crossover_rate': 0.90,
+            'mutation_rate': 0.10,
             'tournament_size': 3,
             'elitism': True
         },
+
         tuning_grids={
             'FA': {
-                'alpha': [0.15, 0.2, 0.25],
-                'gamma': [0.8, 1.0, 1.2]
+                'alpha': [0.12, 0.15, 0.18, 0.22],
+                'gamma': [0.005, 0.01, 0.02, 0.05]
             },
             'SA': {
-                'cooling_rate': [0.93, 0.95, 0.97]
+                'cooling_rate': [0.95, 0.97, 0.99],
+                'initial_temp': [80.0, 100.0, 150.0]
             },
             'HC': {
-                'num_neighbors': [15, 20, 25]
+                'num_neighbors': [20, 30, 40],
+                'restart_interval': [20, 30, 40]
             },
             'GA': {
-                'mutation_rate': [0.05, 0.1, 0.15],
-                'crossover_rate': [0.75, 0.8, 0.85]
+                'mutation_rate': [0.08, 0.10, 0.12],
+                'crossover_rate': [0.85, 0.90, 0.95]
             }
         }
     ),
-    
+
     'multimodal_escape': RastriginConfig(
         dim=30,
         budget=30000,
         max_iter=500,
         thresholds={
-            'gold': 5.0,      # Very close to optimum
-            'silver': 25.0,   # Escaped bad regions, found good local minimum
-            'bronze': 50.0    # Escaped worst regions
+            'gold': 5.0,
+            'silver': 25.0,
+            'bronze': 50.0
         },
         seeds=list(range(30)),
+
+        # FA: gamma xuống 0.01 để giữ lực hút tầm xa
         fa_params={
             'n_fireflies': 60,
-            'alpha': 0.3,
+            'alpha': 0.20,
             'beta0': 1.0,
-            'gamma': 0.5
+            'gamma': 0.01
         },
+
+        # SA: chậm rõ rệt khi D=30
         sa_params={
-            'initial_temp': 200.0,
-            'cooling_rate': 0.98,
-            'min_temp': 1.0
+            'initial_temp': 300.0,
+            'cooling_rate': 0.99,
+            'min_temp': 1e-3
         },
+
+        # HC: mở rộng neighborhood ~3*D, restart sớm
         hc_params={
-            'num_neighbors': 30,
-            'restart_interval': 30
+            'num_neighbors': 90,
+            'restart_interval': 40
         },
+
+        # GA: mutation ≈ 1/D ~ 0.03; crossover cao
         ga_params={
             'pop_size': 60,
-            'crossover_rate': 0.8,
-            'mutation_rate': 0.1,
+            'crossover_rate': 0.90,
+            'mutation_rate': 0.03,
             'tournament_size': 5,
             'elitism': True
         },
+
         tuning_grids={
             'FA': {
-                'alpha': [0.25, 0.3, 0.35],
-                'gamma': [0.4, 0.5, 0.6]
+                'alpha': [0.15, 0.20, 0.25, 0.30],
+                'gamma': [0.005, 0.01, 0.02]
             },
             'SA': {
-                'cooling_rate': [0.96, 0.98, 0.99]
+                'cooling_rate': [0.97, 0.99, 0.995],
+                'initial_temp': [200.0, 300.0, 400.0]
             },
             'HC': {
-                'num_neighbors': [25, 30, 35]
+                'num_neighbors': [60, 90, 120],
+                'restart_interval': [30, 40, 50]
             },
             'GA': {
-                'mutation_rate': [0.08, 0.1, 0.12],
-                'crossover_rate': [0.75, 0.8, 0.85]
+                'mutation_rate': [0.02, 0.03, 0.05],
+                'crossover_rate': [0.85, 0.90, 0.95]
             }
         }
     ),
-    
+
     'scalability': RastriginConfig(
         dim=50,
         budget=50000,
         max_iter=625,
         thresholds={
-            'gold': 10.0,     # Very close to optimum (higher threshold for harder problem)
-            'silver': 50.0,   # Escaped bad regions
-            'bronze': 80.0   # Escaped worst regions
+            'gold': 10.0,
+            'silver': 50.0,
+            'bronze': 80.0
         },
         seeds=list(range(30)),
+
+        # FA: gamma về 8e-3 để không tắt lực hút; alpha hơi cao hơn để giữ exploration
         fa_params={
             'n_fireflies': 80,
-            'alpha': 0.25,
+            'alpha': 0.22,
             'beta0': 1.0,
-            'gamma': 0.3
+            'gamma': 0.008
         },
+
+        # SA: rất chậm; T0 ~ 10*D, T_min rất thấp
         sa_params={
-            'initial_temp': 300.0,
-            'cooling_rate': 0.99,
-            'min_temp': 1.0
+            'initial_temp': 500.0,
+            'cooling_rate': 0.995,
+            'min_temp': 1e-4
         },
+
+        # HC: neighborhood ≈ 3*D; restart dày
         hc_params={
-            'num_neighbors': 50,
-            'restart_interval': 50
+            'num_neighbors': 150,
+            'restart_interval': 30
         },
+
+        # GA: mutation ~ 1/D ≈ 0.02; crossover cao; giữ pop để không phá ngân sách
         ga_params={
             'pop_size': 80,
-            'crossover_rate': 0.85,
-            'mutation_rate': 0.05,
+            'crossover_rate': 0.90,
+            'mutation_rate': 0.02,
             'tournament_size': 7,
             'elitism': True
         },
+
         tuning_grids={
             'FA': {
-                'alpha': [0.2, 0.25, 0.3],
-                'gamma': [0.25, 0.3, 0.35]
+                'alpha': [0.18, 0.22, 0.26],
+                'gamma': [0.003, 0.006, 0.01, 0.02]
             },
             'SA': {
-                'cooling_rate': [0.98, 0.99, 0.995]
+                'cooling_rate': [0.99, 0.995, 0.997],
+                'initial_temp': [400.0, 500.0, 700.0]
             },
             'HC': {
-                'num_neighbors': [40, 50, 60]
+                'num_neighbors': [120, 150, 180],
+                'restart_interval': [20, 30, 40]
             },
             'GA': {
-                'mutation_rate': [0.03, 0.05, 0.07],
-                'crossover_rate': [0.8, 0.85, 0.9]
+                'mutation_rate': [0.015, 0.02, 0.03],
+                'crossover_rate': [0.85, 0.90, 0.95]
             }
         }
     )
 }
+
 
 def get_knapsack_configs() -> List[KnapsackConfig]:
     """
@@ -421,8 +455,8 @@ def get_knapsack_configs() -> List[KnapsackConfig]:
     for size in sizes:
         for inst_type in instance_types:
             for seed in seeds:
-                # DP optimal only for n <= 100
-                has_dp = (size <= 100)
+                # DP optimal only for n <= 201
+                has_dp = (size <= 201)
                 
                 # Budget scales with problem size
                 if size <= 100:

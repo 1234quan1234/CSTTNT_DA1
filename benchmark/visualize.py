@@ -1,7 +1,6 @@
 """
-Generate comprehensive visualizations for benchmark results.
-Academic-grade benchmark visualization following metaheuristic best practices.
-Updated to work with latest JSON structure and file naming conventions.
+Modern academic-grade visualization using CSV summaries.
+All plots are generated from pre-computed summary files, not raw JSON.
 """
 
 import sys
@@ -9,14 +8,16 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
-import json
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
-import re
-from collections import defaultdict
-import pandas as pd
+from typing import Optional, List, Dict
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Set style
 sns.set_style("whitegrid")
@@ -26,766 +27,390 @@ plt.rcParams['font.size'] = 10
 # Algorithm colors and markers
 COLORS = {'FA': '#FF6B6B', 'SA': '#4ECDC4', 'HC': '#45B7D1', 'GA': '#FFA07A'}
 MARKERS = {'FA': 'o', 'SA': 's', 'HC': '^', 'GA': 'D'}
+SCENARIO_MARKERS = {
+    'out_of_the_box': 'o',
+    'specialist': 's',
+    'repair': '^',
+    'penalty': 'D'
+}
 
 
 # ============================================================================
-# UNIFIED DATA LOADING (Robust to file structure changes)
+# DATA LOADING (UPDATED: Load Multiple Summaries)
 # ============================================================================
 
-def load_json_safe(filepath: Path) -> Optional[dict]:
-    """Safely load JSON file with error handling."""
+def load_summary_data(summary_path: Path) -> Optional[pd.DataFrame]:
+    """
+    Load summary CSV file.
+    
+    Parameters
+    ----------
+    summary_path : Path
+        Path to CSV summary file
+    
+    Returns
+    -------
+    pd.DataFrame or None
+        Loaded dataframe, or None if file not found
+    """
+    if not summary_path.exists():
+        logger.warning(f"Summary file not found: {summary_path}")
+        return None
+    
     try:
-        with open(filepath, 'r') as f:
-            return json.load(f)
+        df = pd.read_csv(summary_path)
+        logger.info(f"Loaded {len(df)} rows from {summary_path.name}")
+        return df
     except Exception as e:
-        print(f"Warning: Could not load {filepath}: {e}")
+        logger.error(f"Error loading {summary_path}: {e}")
         return None
 
-
-def get_rastrigin_raw_data(results_dir: str, config_name: str) -> Dict:
+def load_available_summaries(summary_dir: Path, prefix: str) -> Dict[str, pd.DataFrame]:
     """
-    Load Rastrigin results from files matching pattern:
-    rastrigin_{config_name}_{algo}_{scenario}_{timestamp}.json
+    Load all available summary files with given prefix.
     
-    Returns: {algo: {'histories': [...], 'error_to_optimum': [...], 'success_levels': {...}}}
+    Parameters
+    ----------
+    summary_dir : Path
+        Directory containing summary CSVs
+    prefix : str
+        Prefix of summary files (e.g., 'knapsack_summary')
+    
+    Returns
+    -------
+    Dict[str, pd.DataFrame]
+        Dictionary mapping summary type to DataFrame:
+        - 'by_instance': Instance-level summary
+        - 'by_type': Type-level summary
     """
-    results_path = Path(results_dir) / 'rastrigin'
-    if not results_path.exists():
-        results_path = Path(results_dir)
+    summaries = {}
     
-    pattern = f'rastrigin_{config_name}_*.json'
-    json_files = list(results_path.glob(pattern))
+    # Try to load by_instance
+    instance_path = summary_dir / f'{prefix}_by_instance.csv'
+    if instance_path.exists():
+        try:
+            df = pd.read_csv(instance_path)
+            summaries['by_instance'] = df
+            logger.info(f"Loaded {len(df)} rows from {instance_path.name}")
+        except Exception as e:
+            logger.error(f"Error loading {instance_path}: {e}")
     
-    if not json_files:
-        print(f"No results found for {config_name} in {results_path}")
-        return {}
+    # Try to load by_type
+    type_path = summary_dir / f'{prefix}_by_type.csv'
+    if type_path.exists():
+        try:
+            df = pd.read_csv(type_path)
+            summaries['by_type'] = df
+            logger.info(f"Loaded {len(df)} rows from {type_path.name}")
+        except Exception as e:
+            logger.error(f"Error loading {type_path}: {e}")
     
-    raw_data = defaultdict(lambda: {'histories': [], 'error_to_optimum': []})
-    
-    for json_file in json_files:
-        data = load_json_safe(json_file)
-        if not data:
-            continue
-        
-        # robust algo extraction (with or without strict timestamp)
-        match = re.search(r'_(FA|GA|SA|HC)_\d{8}T\d{6}\.json$', json_file.name)
-        if not match:
-            match = re.search(r'_(FA|GA|SA|HC)\.json$', json_file.name)
-        if not match:
-            # can't infer algorithm -> skip
-            continue
-        algo = match.group(1)
-        
-        # normalize runs: support aggregated 'results', single-run dict, or list-of-runs
-        runs = []
-        if isinstance(data, dict) and 'results' in data and isinstance(data['results'], list):
-            runs = data['results']
-        elif isinstance(data, list):
-            runs = data
-        elif isinstance(data, dict):
-            runs = [data]
-        else:
-            continue
-        
-        for run in runs:
-            # tolerate multiple possible key names
-            history = run.get('history') or run.get('hist') or run.get('trajectory') or []
-            final_error = run.get('final_error')
-            
-            # many files store best fitness as 'best_fitness' -> convert
-            if final_error is None:
-                bf = run.get('best_fitness')
-                if bf is not None:
-                    # Rastrigin optimum = 0 -> error = abs(best_fitness)
-                    final_error = abs(bf)
-            
-            # if still missing but history present, take last history value
-            if final_error is None and history:
-                try:
-                    last = history[-1]
-                    if isinstance(last, (int, float)):
-                        final_error = abs(last)
-                except Exception:
-                    final_error = None
-            
-            if history:
-                raw_data[algo]['histories'].append(list(history))
-            if final_error is not None:
-                raw_data[algo]['error_to_optimum'].append(float(final_error))
-            
-            # NEW: Extract success_levels if present
-            if 'success_levels' in run:
-                if 'success_levels' not in raw_data[algo]:
-                    raw_data[algo]['success_levels'] = {}
-                for level, level_data in run['success_levels'].items():
-                    if level not in raw_data[algo]['success_levels']:
-                        raw_data[algo]['success_levels'][level] = []
-                    raw_data[algo]['success_levels'][level].append(level_data)
-    
-    return dict(raw_data)
-
-
-def get_knapsack_raw_data(results_dir: str, n_items: int, 
-                          instance_type: str, instance_seed: int) -> Dict:
-    """
-    Load Knapsack results from files matching pattern:
-    knapsack_n{size}_{type}_seed{seed}_{algo}_{timestamp}.json
-    
-    Returns: {
-        'dp_optimal': float,
-        algo: {
-            'histories': [...],
-            'optimality_gaps': [...],
-            'elapsed_times': [...],
-            'capacity_utilization': [...],
-            'feasibility': [...]
-        }
-    }
-    """
-    results_path = Path(results_dir) / 'knapsack'
-    if not results_path.exists():
-        results_path = Path(results_dir)
-    
-    pattern = f'knapsack_n{n_items}_{instance_type}_seed{instance_seed}_*.json'
-    json_files = list(results_path.glob(pattern))
-    
-    if not json_files:
-        return {}
-    
-    raw_data = {'dp_optimal': None}
-    
-    for json_file in json_files:
-        data = load_json_safe(json_file)
-        if not data:
-            continue
-        
-        # Extract algorithm from filename
-        match = re.search(r'_(FA|GA|SA|HC)_\d+T\d+\.json$', json_file.name)
-        if not match:
-            continue
-        algo = match.group(1)
-        
-        if algo not in raw_data:
-            raw_data[algo] = {
-                'histories': [],
-                'optimality_gaps': [],
-                'elapsed_times': [],
-                'capacity_utilization': [],
-                'feasibility': []
-            }
-        
-        # Extract DP optimal if present
-        if 'config' in data and 'dp_optimal' in data['config']:
-            raw_data['dp_optimal'] = data['config']['dp_optimal']
-        
-        # Extract run data
-        if 'results' in data:
-            # Aggregated format
-            for run in data['results']:
-                raw_data[algo]['histories'].append(run.get('history', []))
-                if 'optimality_gap' in run:
-                    raw_data[algo]['optimality_gaps'].append(run['optimality_gap'])
-                if 'elapsed_time' in run:
-                    raw_data[algo]['elapsed_times'].append(run['elapsed_time'])
-                if 'capacity_utilization' in run:
-                    raw_data[algo]['capacity_utilization'].append(run['capacity_utilization'])
-                if 'is_feasible' in run:
-                    raw_data[algo]['feasibility'].append(bool(run['is_feasible']))
-        else:
-            # Single run format
-            raw_data[algo]['histories'].append(data.get('history', []))
-            if 'optimality_gap' in data:
-                raw_data[algo]['optimality_gaps'].append(data['optimality_gap'])
-            if 'elapsed_time' in data:
-                raw_data[algo]['elapsed_times'].append(data['elapsed_time'])
-            if 'capacity_utilization' in data:
-                raw_data[algo]['capacity_utilization'].append(data['capacity_utilization'])
-            if 'is_feasible' in data:
-                raw_data[algo]['feasibility'].append(bool(data['is_feasible']))
-    
-    return raw_data
-
-
-def discover_knapsack_configs(results_dir: str) -> List[Tuple[int, str, int]]:
-    """
-    Discover all knapsack configurations from result files.
-    Returns: [(n_items, instance_type, seed), ...]
-    """
-    results_path = Path(results_dir) / 'knapsack'
-    if not results_path.exists():
-        results_path = Path(results_dir)
-    
-    configs = set()
-    
-    for json_file in results_path.glob('knapsack_n*_*.json'):
-        # Parse: knapsack_n100_uncorrelated_seed42_FA_20251110T202419.json
-        match = re.match(r'knapsack_n(\d+)_([a-z_]+)_seed(\d+)_', json_file.name)
-        if match:
-            n_items = int(match.group(1))
-            instance_type = match.group(2)
-            seed = int(match.group(3))
-            configs.add((n_items, instance_type, seed))
-    
-    return sorted(configs)
+    return summaries
 
 
 # ============================================================================
-# RASTRIGIN VISUALIZATIONS (Continuous Optimization)
+# RASTRIGIN VISUALIZATIONS
 # ============================================================================
 
-def plot_rastrigin_convergence(results_dir: str, config_name: str, output_file: str):
+def plot_rastrigin_boxplots_by_scenario(df: pd.DataFrame, output_dir: str):
     """
-    Plot convergence curves: median error-to-optimum vs evaluations with IQR bands.
+    Boxplots of final error for each configuration and scenario.
+    Separate subplot for each (config, scenario) pair.
     """
-    raw_data = get_rastrigin_raw_data(results_dir, config_name)
-    
-    if not raw_data:
-        print(f"No results found for {config_name}")
+    if df.empty:
         return
     
-    fig, ax = plt.subplots(figsize=(12, 7))
+    configs = sorted(df['Configuration'].unique())
+    scenarios = sorted(df['Scenario'].unique())
     
-    for algo in sorted(raw_data.keys()):
-        data = raw_data[algo]
-        histories = data['histories']
-        
-        if not histories:
-            continue
-        
-        # Convert to error-to-optimum (Rastrigin optimum = 0)
-        error_histories = [np.abs(np.array(h)) for h in histories]
-        
-        # Align to same evaluation budget
-        min_len = min(len(h) for h in error_histories)
-        error_histories = [h[:min_len] for h in error_histories]
-        error_histories = np.array(error_histories)
-        
-        # Calculate median and IQR
-        median = np.median(error_histories, axis=0)
-        q25 = np.percentile(error_histories, 25, axis=0)
-        q75 = np.percentile(error_histories, 75, axis=0)
-        
-        evals = np.arange(1, len(median) + 1)
-        
-        # Plot median line with IQR band
-        ax.plot(evals, median, label=algo, color=COLORS[algo],
-                linewidth=2, alpha=0.9)
-        ax.fill_between(evals, q25, q75, color=COLORS[algo], alpha=0.2)
+    n_configs = len(configs)
+    n_scenarios = len(scenarios)
     
-    ax.set_xlabel('Function Evaluations', fontsize=12)
-    ax.set_ylabel('Error to Optimum |f(x) - 0|', fontsize=12)
-    ax.set_title(f'Convergence - Rastrigin {config_name.replace("_", " ").title()}',
-                 fontsize=14, fontweight='bold')
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3)
-    ax.set_yscale('log')
+    fig, axes = plt.subplots(n_scenarios, n_configs, 
+                             figsize=(5 * n_configs, 4 * n_scenarios),
+                             squeeze=False)
     
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✓ Saved: {output_file}")
-
-
-def plot_rastrigin_boxplots(results_dir: str, config_name: str, output_file: str):
-    """Plot boxplots of final error-to-optimum distributions."""
-    raw_data = get_rastrigin_raw_data(results_dir, config_name)
-    
-    if not raw_data:
-        return
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    algorithms = sorted(raw_data.keys())
-    data_to_plot = [raw_data[algo]['error_to_optimum'] for algo in algorithms]
-    
-    bp = ax.boxplot(data_to_plot, labels=algorithms, patch_artist=True,
-                    showmeans=True, meanprops=dict(marker='D', markerfacecolor='red', markersize=8))
-    
-    colors = [COLORS[algo] for algo in algorithms]
-    for patch, color in zip(bp['boxes'], colors):
-        patch.set_facecolor(color)
-        patch.set_alpha(0.7)
-    
-    ax.set_ylabel('Error to Optimum |f(x) - 0|', fontsize=12)
-    ax.set_title(f'Final Error Distribution - Rastrigin {config_name.replace("_", " ").title()}',
-                 fontsize=14, fontweight='bold')
-    ax.grid(True, alpha=0.3, axis='y')
-    ax.set_yscale('log')
-    
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✓ Saved: {output_file}")
-
-
-def plot_rastrigin_ecdf(results_dir: str, config_name: str, output_file: str):
-    """Plot Empirical Cumulative Distribution Function of final errors."""
-    raw_data = get_rastrigin_raw_data(results_dir, config_name)
-    
-    if not raw_data:
-        return
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    for algo in sorted(raw_data.keys()):
-        errors = np.sort(raw_data[algo]['error_to_optimum'])
-        n = len(errors)
-        if n == 0:
-            continue
-        ecdf = np.arange(1, n + 1) / n
-        
-        ax.plot(errors, ecdf, label=algo, color=COLORS[algo],
-                linewidth=2.5, alpha=0.9, marker=MARKERS[algo], 
-                markersize=4, markevery=max(1, n // 10))
-    
-    ax.set_xlabel('Error to Optimum |f(x) - 0|', fontsize=12)
-    ax.set_ylabel('Cumulative Probability P(Error ≤ x)', fontsize=12)
-    ax.set_title(f'ECDF - Rastrigin {config_name.replace("_", " ").title()}',
-                 fontsize=14, fontweight='bold')
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3)
-    ax.set_xscale('log')
-    
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✓ Saved: {output_file}")
-
-
-def plot_rastrigin_scalability(results_dir: str, output_file: str):
-    """Plot scalability: mean error vs dimension with error bars."""
-    configs = ['quick_convergence', 'multimodal_escape', 'scalability']
-    dims = [10, 30, 50]
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    for algo in ['FA', 'GA', 'SA', 'HC']:
-        means = []
-        stds = []
-        
-        for config_name in configs:
-            raw_data = get_rastrigin_raw_data(results_dir, config_name)
+    for i, scenario in enumerate(scenarios):
+        for j, config in enumerate(configs):
+            ax = axes[i, j]
             
-            if algo in raw_data and len(raw_data[algo]['error_to_optimum']) > 0:
-                errors = raw_data[algo]['error_to_optimum']
-                means.append(np.mean(errors))
-                stds.append(np.std(errors))
-            else:
-                means.append(np.nan)
-                stds.append(np.nan)
-        
-        ax.errorbar(dims, means, yerr=stds, label=algo, marker=MARKERS[algo],
-                   markersize=10, linewidth=2.5, capsize=5, color=COLORS[algo])
-    
-    ax.set_xlabel('Dimension', fontsize=12)
-    ax.set_ylabel('Mean Error to Optimum', fontsize=12)
-    ax.set_title('Scalability Analysis - Rastrigin Function',
-                 fontsize=14, fontweight='bold')
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3)
-    ax.set_yscale('log')
-    
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✓ Saved: {output_file}")
-
-
-# ============================================================================
-# KNAPSACK VISUALIZATIONS (Constrained Discrete Optimization)
-# ============================================================================
-
-def plot_knapsack_convergence(results_dir: str, n_items: int, instance_type: str,
-                              instance_seed: int, output_file: str):
-    """Plot convergence: best value vs evaluations with DP optimal reference."""
-    raw_data = get_knapsack_raw_data(results_dir, n_items, instance_type, instance_seed)
-    
-    if not raw_data or len(raw_data) <= 1:
-        print(f"No results for n={n_items}, {instance_type}, seed={instance_seed}")
-        return
-    
-    fig, ax = plt.subplots(figsize=(12, 7))
-    
-    dp_optimal = raw_data.get('dp_optimal')
-    
-    for algo in ['FA', 'GA', 'SA', 'HC']:
-        if algo not in raw_data:
-            continue
-        
-        data = raw_data[algo]
-        histories = data['histories']
-        
-        if not histories:
-            continue
-        
-        # Align to same evaluation budget
-        min_len = min(len(h) for h in histories if len(h) > 0)
-        if min_len == 0:
-            continue
-        histories = [h[:min_len] for h in histories if len(h) > 0]
-        histories = np.array(histories)
-        
-        # Calculate median and IQR
-        median = np.median(histories, axis=0)
-        q25 = np.percentile(histories, 25, axis=0)
-        q75 = np.percentile(histories, 75, axis=0)
-        
-        evals = np.arange(1, len(median) + 1)
-        
-        ax.plot(evals, median, label=algo, color=COLORS[algo],
-                linewidth=2, alpha=0.9)
-        ax.fill_between(evals, q25, q75, color=COLORS[algo], alpha=0.2)
-    
-    # DP optimal reference line
-    if dp_optimal:
-        ax.axhline(y=dp_optimal, color='red', linestyle='--', linewidth=2, 
-                   label=f'DP Optimal ({dp_optimal:.0f})', alpha=0.7)
-    
-    ax.set_xlabel('Function Evaluations', fontsize=12)
-    ax.set_ylabel('Best Value Found', fontsize=12)
-    ax.set_title(f'Knapsack Convergence - n={n_items}, {instance_type.title()}, seed={instance_seed}',
-                 fontsize=14, fontweight='bold')
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✓ Saved: {output_file}")
-
-
-def plot_knapsack_gap(results_dir: str, n_items: int, instance_type: str,
-                     instance_seed: int, output_file: str):
-    """Plot optimality gap distribution (only when DP optimal available)."""
-    raw_data = get_knapsack_raw_data(results_dir, n_items, instance_type, instance_seed)
-    
-    if not raw_data or not raw_data.get('dp_optimal'):
-        return
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    algorithms = []
-    data_to_plot = []
-    
-    for algo in ['FA', 'GA', 'SA', 'HC']:
-        if algo in raw_data and len(raw_data[algo]['optimality_gaps']) > 0:
-            algorithms.append(algo)
-            data_to_plot.append(raw_data[algo]['optimality_gaps'])
-    
-    if not algorithms:
-        return
-    
-    bp = ax.boxplot(data_to_plot, tick_labels=algorithms, patch_artist=True,
-                    showmeans=True, meanprops=dict(marker='D', markerfacecolor='red', markersize=8))
-    
-    colors = [COLORS[algo] for algo in algorithms]
-    for patch, color in zip(bp['boxes'], colors):
-        patch.set_facecolor(color)
-        patch.set_alpha(0.7)
-    
-    ax.set_ylabel('Optimality Gap (%)', fontsize=12)
-    ax.set_title(f'Knapsack Optimality Gap - n={n_items}, {instance_type.title()}, seed={instance_seed}',
-                 fontsize=14, fontweight='bold')
-    ax.grid(True, alpha=0.3, axis='y')
-    ax.axhline(y=0, color='red', linestyle='--', linewidth=1, alpha=0.5)
-    
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✓ Saved: {output_file}")
-
-
-def plot_knapsack_aggregate_feasibility(results_dir: str, output_file: str):
-    """Plot feasibility rate across all configurations."""
-    configs = discover_knapsack_configs(results_dir)
-    
-    if not configs:
-        print("No knapsack results found")
-        return
-    
-    feasibility_data = []
-    
-    for n_items, instance_type, seed in configs:
-        raw_data = get_knapsack_raw_data(results_dir, n_items, instance_type, seed)
-        
-        for algo in ['FA', 'GA', 'SA', 'HC']:
-            if algo in raw_data and len(raw_data[algo]['feasibility']) > 0:
-                feas_rate = np.mean(raw_data[algo]['feasibility']) * 100
-                feasibility_data.append({
-                    'n_items': n_items,
-                    'type': instance_type,
-                    'Algorithm': algo,
-                    'Feasibility': feas_rate
-                })
-    
-    if not feasibility_data:
-        return
-    
-    df = pd.DataFrame(feasibility_data)
-    
-    # Get unique sizes
-    sizes = sorted(df['n_items'].unique())
-    n_sizes = len(sizes)
-    
-    fig, axes = plt.subplots(1, n_sizes, figsize=(5 * n_sizes, 5))
-    if n_sizes == 1:
-        axes = [axes]
-    
-    for idx, n in enumerate(sizes):
-        ax = axes[idx]
-        df_n = df[df['n_items'] == n]
-        
-        if df_n.empty:
-            continue
-        
-        # Pivot for grouped bar chart
-        pivot = df_n.pivot_table(values='Feasibility', index='type', 
-                                 columns='Algorithm', aggfunc='mean')
-        
-        pivot.plot(kind='bar', ax=ax, color=[COLORS.get(a, 'gray') for a in pivot.columns])
-        ax.set_title(f'n={n}', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Feasibility Rate (%)', fontsize=11)
-        ax.set_xlabel('')
-        ax.axhline(y=100, color='red', linestyle='--', linewidth=1, alpha=0.5)
-        ax.set_ylim([0, 105])
-        ax.legend(fontsize=9)
-        ax.grid(True, alpha=0.3, axis='y')
-        ax.tick_params(axis='x', rotation=45)
-    
-    plt.suptitle('Knapsack Feasibility Rate', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✓ Saved: {output_file}")
-
-
-def plot_knapsack_aggregate_capacity(results_dir: str, output_file: str):
-    """Plot capacity utilization distribution across all configs."""
-    configs = discover_knapsack_configs(results_dir)
-    
-    if not configs:
-        return
-    
-    import pandas as pd
-    
-    util_data = []
-    
-    for n_items, instance_type, seed in configs:
-        raw_data = get_knapsack_raw_data(results_dir, n_items, instance_type, seed)
-        
-        for algo in ['FA', 'GA', 'SA', 'HC']:
-            if algo in raw_data and len(raw_data[algo]['capacity_utilization']) > 0:
-                for u in raw_data[algo]['capacity_utilization']:
-                    util_data.append({
-                        'n_items': n_items,
-                        'Algorithm': algo,
-                        'Utilization': u
-                    })
-    
-    if not util_data:
-        return
-    
-    df = pd.DataFrame(util_data)
-    
-    sizes = sorted(df['n_items'].unique())
-    n_sizes = len(sizes)
-    
-    fig, axes = plt.subplots(1, n_sizes, figsize=(5 * n_sizes, 5))
-    if n_sizes == 1:
-        axes = [axes]
-    
-    for idx, n in enumerate(sizes):
-        ax = axes[idx]
-        df_n = df[df['n_items'] == n]
-        
-        if df_n.empty:
-            continue
-        
-        data_to_plot = [df_n[df_n['Algorithm'] == algo]['Utilization'].values 
-                       for algo in ['FA', 'GA', 'SA', 'HC'] 
-                       if algo in df_n['Algorithm'].values]
-        labels = [algo for algo in ['FA', 'GA', 'SA', 'HC'] 
-                 if algo in df_n['Algorithm'].values]
-        
-        bp = ax.boxplot(data_to_plot, tick_labels=labels, patch_artist=True)
-        
-        for patch, label in zip(bp['boxes'], labels):
-            patch.set_facecolor(COLORS[label])
-            patch.set_alpha(0.7)
-        
-        ax.set_title(f'n={n}', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Capacity Utilization', fontsize=11)
-        ax.axhline(y=1.0, color='green', linestyle='--', linewidth=1, alpha=0.5)
-        ax.grid(True, alpha=0.3, axis='y')
-    
-    plt.suptitle('Knapsack Capacity Utilization', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✓ Saved: {output_file}")
-
-
-def plot_knapsack_scalability(results_dir: str, instance_type: str,
-                              instance_seed: int, output_file: str):
-    """Plot scalability: gap vs problem size."""
-    configs = discover_knapsack_configs(results_dir)
-    
-    # Filter by type and seed
-    configs = [(n, t, s) for n, t, s in configs if t == instance_type and s == instance_seed]
-    
-    if not configs:
-        return
-    
-    sizes = sorted(set(n for n, _, _ in configs))
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    for algo in ['FA', 'GA', 'SA', 'HC']:
-        gaps = []
-        stds = []
-        
-        for n_items in sizes:
-            raw_data = get_knapsack_raw_data(results_dir, n_items, instance_type, instance_seed)
+            subset = df[(df['Configuration'] == config) & (df['Scenario'] == scenario)]
             
-            if algo in raw_data and len(raw_data[algo]['optimality_gaps']) > 0:
-                gaps.append(np.mean(raw_data[algo]['optimality_gaps']))
-                stds.append(np.std(raw_data[algo]['optimality_gaps']))
-            else:
-                gaps.append(np.nan)
-                stds.append(np.nan)
-        
-        ax.errorbar(sizes, gaps, yerr=stds, label=algo, marker=MARKERS[algo],
-                   markersize=10, linewidth=2.5, capsize=5, color=COLORS[algo])
+            if subset.empty:
+                ax.axis('off')
+                continue
+            
+            # Pivot for boxplot
+            algos = sorted(subset['Algorithm'].unique())
+            data_to_plot = [subset[subset['Algorithm'] == algo]['Median_Error'].values 
+                           for algo in algos]
+            
+            bp = ax.boxplot(data_to_plot, labels=algos, patch_artist=True,
+                           showmeans=True, meanprops=dict(marker='D', markerfacecolor='red', markersize=6))
+            
+            for patch, algo in zip(bp['boxes'], algos):
+                patch.set_facecolor(COLORS.get(algo, 'gray'))
+                patch.set_alpha(0.7)
+            
+            ax.set_title(f'{config}\n{scenario}', fontsize=10, fontweight='bold')
+            ax.set_ylabel('Error to Optimum' if j == 0 else '')
+            ax.set_yscale('log')
+            ax.grid(True, alpha=0.3, axis='y')
     
-    ax.set_xlabel('Number of Items', fontsize=12)
-    ax.set_ylabel('Mean Optimality Gap (%)', fontsize=12)
-    ax.set_title(f'Knapsack Scalability - {instance_type.title()}, seed={instance_seed}',
+    plt.suptitle('Rastrigin: Final Error Distribution by Configuration & Scenario',
                  fontsize=14, fontweight='bold')
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3)
-    
     plt.tight_layout()
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    
+    output_path = Path(output_dir) / 'rastrigin_boxplots_by_scenario.png'
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"✓ Saved: {output_file}")
+    logger.info(f"✓ Saved: {output_path}")
 
 
-def plot_knapsack_runtime_quality(results_dir: str, output_file: str):
-    """Scatter plot: runtime vs quality trade-off."""
-    configs = discover_knapsack_configs(results_dir)
-    
-    if not configs:
+def plot_rastrigin_success_breakdown(df: pd.DataFrame, output_dir: str):
+    """
+    Multi-level success rate visualization (Gold, Silver, Bronze).
+    Grouped bar chart for each configuration x scenario.
+    """
+    if df.empty:
         return
     
-    import pandas as pd
+    # Check if multi-level columns exist
+    level_cols = [col for col in df.columns if col.startswith('SR_')]
+    if not level_cols:
+        logger.warning("No success rate columns found")
+        return
     
-    scatter_data = []
+    configs = sorted(df['Configuration'].unique())
     
-    for n_items, instance_type, seed in configs:
-        raw_data = get_knapsack_raw_data(results_dir, n_items, instance_type, seed)
+    for config in configs:
+        df_config = df[df['Configuration'] == config]
+        scenarios = sorted(df_config['Scenario'].unique())
         
-        for algo in ['FA', 'GA', 'SA', 'HC']:
-            if algo in raw_data and len(raw_data[algo]['optimality_gaps']) > 0:
-                times = raw_data[algo]['elapsed_times']
-                gaps = raw_data[algo]['optimality_gaps']
+        fig, axes = plt.subplots(1, len(scenarios), figsize=(6 * len(scenarios), 5),
+                                squeeze=False)
+        axes = axes.flatten()
+        
+        for idx, scenario in enumerate(scenarios):
+            ax = axes[idx]
+            subset = df_config[df_config['Scenario'] == scenario]
+            
+            if subset.empty:
+                ax.axis('off')
+                continue
+            
+            algos = sorted(subset['Algorithm'].unique())
+            
+            # Find all SR columns (e.g., SR_Gold_%, SR_Silver_%, SR_Bronze_%)
+            sr_cols = [col for col in subset.columns if col.startswith('SR_') and col.endswith('_%')]
+            
+            if not sr_cols:
+                ax.axis('off')
+                continue
+            
+            x = np.arange(len(algos))
+            width = 0.8 / len(sr_cols)
+            
+            for i, sr_col in enumerate(sorted(sr_cols)):
+                level_name = sr_col.replace('SR_', '').replace('_%', '')
+                values = [subset[subset['Algorithm'] == algo][sr_col].values[0] 
+                         if len(subset[subset['Algorithm'] == algo]) > 0 else 0
+                         for algo in algos]
                 
-                for t, g in zip(times, gaps):
-                    scatter_data.append({
-                        'Algorithm': algo,
-                        'Time': t,
-                        'Gap': g,
-                        'n_items': n_items
-                    })
-    
-    if not scatter_data:
+                color_intensity = 0.4 + 0.4 * i / len(sr_cols)
+                ax.bar(x + i * width, values, width, label=level_name,
+                      color=plt.cm.Blues(color_intensity), alpha=0.8,
+                      edgecolor='black', linewidth=0.5)
+            
+            ax.set_xlabel('Algorithm', fontsize=11)
+            ax.set_ylabel('Success Rate (%)' if idx == 0 else '', fontsize=11)
+            ax.set_title(f'{scenario.replace("_", " ").title()}', fontsize=12, fontweight='bold')
+            ax.set_xticks(x + width * (len(sr_cols) - 1) / 2)
+            ax.set_xticklabels(algos)
+            ax.legend(fontsize=9)
+            ax.grid(True, alpha=0.3, axis='y')
+            ax.set_ylim([0, 105])
+        
+        plt.suptitle(f'Rastrigin Multi-Level Success Rates - {config.replace("_", " ").title()}',
+                     fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        
+        output_path = Path(output_dir) / f'rastrigin_success_breakdown_{config}.png'
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        logger.info(f"✓ Saved: {output_path}")
+
+
+def plot_rastrigin_cross_scenario_comparison(df: pd.DataFrame, output_dir: str):
+    """
+    Cross-scenario comparison: grouped bar chart showing performance of each
+    algorithm across different scenarios.
+    """
+    if df.empty or 'Scenario' not in df.columns:
         return
     
-    df = pd.DataFrame(scatter_data)
+    configs = sorted(df['Configuration'].unique())
     
-    fig, ax = plt.subplots(figsize=(10, 6))
+    for config in configs:
+        df_config = df[df['Configuration'] == config]
+        
+        # Pivot table: Algorithm x Scenario
+        pivot = df_config.pivot_table(
+            values='Median_Error',
+            index='Algorithm',
+            columns='Scenario',
+            aggfunc='mean'
+        )
+        
+        if pivot.empty:
+            continue
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        pivot.plot(kind='bar', ax=ax, color=plt.cm.Set2.colors, alpha=0.8,
+                  edgecolor='black', linewidth=1)
+        
+        ax.set_xlabel('Algorithm', fontsize=12)
+        ax.set_ylabel('Median Error to Optimum', fontsize=12)
+        ax.set_title(f'Rastrigin Cross-Scenario Comparison - {config.replace("_", " ").title()}',
+                    fontsize=14, fontweight='bold')
+        ax.set_yscale('log')
+        ax.legend(title='Scenario', fontsize=10)
+        ax.grid(True, alpha=0.3, axis='y')
+        plt.xticks(rotation=0)
+        
+        plt.tight_layout()
+        
+        output_path = Path(output_dir) / f'rastrigin_cross_scenario_{config}.png'
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        logger.info(f"✓ Saved: {output_path}")
+
+
+def plot_rastrigin_hitting_times(df: pd.DataFrame, output_dir: str):
+    """
+    Hitting time comparison across algorithms, configs, and scenarios.
+    Uses first available hitting time column.
+    """
+    if df.empty:
+        return
     
-    for algo in ['FA', 'GA', 'SA', 'HC']:
-        df_algo = df[df['Algorithm'] == algo]
-        if not df_algo.empty:
-            ax.scatter(df_algo['Time'], df_algo['Gap'], 
-                      label=algo, color=COLORS[algo], marker=MARKERS[algo],
-                      s=50, alpha=0.6, edgecolors='black', linewidth=0.5)
+    # Find hitting time columns
+    ht_cols = [col for col in df.columns if col.startswith('HT_Med_')]
+    if not ht_cols:
+        logger.warning("No hitting time columns found")
+        return
     
-    ax.set_xlabel('Elapsed Time (seconds)', fontsize=12)
-    ax.set_ylabel('Optimality Gap (%)', fontsize=12)
-    ax.set_title('Knapsack: Runtime vs Quality Trade-off',
-                 fontsize=14, fontweight='bold')
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3)
+    # Use first HT column
+    ht_col = ht_cols[0]
     
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
+    configs = sorted(df['Configuration'].unique())
     
-    print(f"✓ Saved: {output_file}")
+    for config in configs:
+        df_config = df[df['Configuration'] == config]
+        scenarios = sorted(df_config['Scenario'].unique())
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        algos = sorted(df_config['Algorithm'].unique())
+        x = np.arange(len(algos))
+        width = 0.8 / len(scenarios)
+        
+        for i, scenario in enumerate(scenarios):
+            subset = df_config[df_config['Scenario'] == scenario]
+            
+            values = []
+            for algo in algos:
+                row = subset[subset['Algorithm'] == algo]
+                if not row.empty and pd.notna(row[ht_col].values[0]):
+                    values.append(row[ht_col].values[0])
+                else:
+                    values.append(0)
+            
+            ax.bar(x + i * width, values, width, label=scenario.replace('_', ' ').title(),
+                  alpha=0.8, edgecolor='black', linewidth=0.5)
+        
+        ax.set_xlabel('Algorithm', fontsize=12)
+        ax.set_ylabel('Median Hitting Time (evaluations)', fontsize=12)
+        ax.set_title(f'Rastrigin Hitting Times - {config.replace("_", " ").title()}',
+                    fontsize=14, fontweight='bold')
+        ax.set_xticks(x + width * (len(scenarios) - 1) / 2)
+        ax.set_xticklabels(algos)
+        ax.legend(fontsize=10)
+        ax.grid(True, alpha=0.3, axis='y')
+        ax.set_yscale('log')
+        
+        plt.tight_layout()
+        
+        output_path = Path(output_dir) / f'rastrigin_hitting_times_{config}.png'
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        logger.info(f"✓ Saved: {output_path}")
 
 
 # ============================================================================
-# ADVANCED PLOTS (Performance Profile, Success Rate, Global Ranks)
+# ADVANCED PLOTS (UPDATED: Fix Instance Column Detection)
 # ============================================================================
 
 def plot_performance_profile(
-    summary_df: pd.DataFrame,
+    df: pd.DataFrame,
     metric_col: str,
     output_file: str,
     minimize: bool = True,
     title: str = ''
 ):
-    """
-    Plot Dolan–Moré performance profile.
-    
-    metric_col: column to compare (AUC_median, Mean_Gap_%, etc.).
-    minimize: if True, lower metric is better; if False, higher is better.
-    Builds cumulative distribution: fraction of instances solved within tau * best.
-    """
-    if summary_df.empty or metric_col not in summary_df.columns:
-        print(f"Warning: Cannot plot performance profile, metric '{metric_col}' not found")
+    """Dolan–Moré performance profile from summary data."""
+    if df.empty or metric_col not in df.columns:
+        logger.warning(f"Cannot plot performance profile: {metric_col} not found")
         return
     
-    algos = sorted(summary_df['Algorithm'].unique())
+    algos = sorted(df['Algorithm'].unique())
     
-    # Identify instance grouping column(s)
-    if 'Configuration' in summary_df.columns:
-        instance_col = 'Configuration'
-        group_cols = ['Configuration']
-    elif all(col in summary_df.columns for col in ['n_items', 'type', 'seed']):
-        group_cols = ['n_items', 'type', 'seed']
-    else:
-        print("Warning: Cannot identify instance grouping columns")
+    # Identify instance columns (FIXED FOR KNAPSACK)
+    instance_cols = []
+    
+    # For Rastrigin
+    if 'Configuration' in df.columns:
+        instance_cols.append('Configuration')
+    
+    # For Knapsack (instance-level)
+    if 'N_Items' in df.columns:
+        instance_cols.append('N_Items')
+    if 'Instance_Type' in df.columns:
+        instance_cols.append('Instance_Type')
+    if 'Instance_Seed' in df.columns:
+        instance_cols.append('Instance_Seed')
+    
+    # Scenario is always included if present
+    if 'Scenario' in df.columns:
+        instance_cols.append('Scenario')
+    
+    if not instance_cols:
+        logger.warning("Cannot identify instance grouping columns for Performance Profile")
         return
+    
+    logger.info(f"Performance Profile grouping by: {instance_cols}")
     
     # Group by instances
-    grouped = summary_df.groupby(group_cols)
-    
-    # Build performance ratios for each algo
     perf_ratios = {algo: [] for algo in algos}
     
-    for _, group in grouped:
+    for _, group in df.groupby(instance_cols):
         valid = group.dropna(subset=[metric_col])
         if len(valid) < 1:
             continue
         
-        # Find best performance on this instance
         if minimize:
             best = valid[metric_col].min()
         else:
             best = valid[metric_col].max()
         
-        # Compute ratio for each algo
+        if best == 0:
+            continue  # Skip if best is zero (would cause division by zero)
+        
         for _, row in valid.iterrows():
             algo = row['Algorithm']
             metric_val = row[metric_col]
@@ -805,18 +430,18 @@ def plot_performance_profile(
     for algo in algos:
         ratios = np.array(perf_ratios[algo])
         if len(ratios) == 0:
+            logger.warning(f"No performance ratios for {algo}")
             continue
         
-        # Fraction of instances where ratio <= tau
         ys = [np.mean(ratios <= tau) for tau in taus]
         
         ax.plot(taus, ys, label=algo, color=COLORS.get(algo, 'gray'),
                 linewidth=2.5, marker=MARKERS.get(algo, 'o'), markersize=3, markevery=50)
     
-    ax.set_xlabel(r'$\tau$ (performance ratio factor)', fontsize=12)
-    ax.set_ylabel('Fraction of instances solved within $\\tau \\cdot$ best', fontsize=12)
+    ax.set_xlabel(r'$\tau$ (performance ratio)', fontsize=12)
+    ax.set_ylabel('Fraction of instances solved within $\\tau \\times$ best', fontsize=12)
     ax.set_title(title or f'Performance Profile ({metric_col})', fontsize=14, fontweight='bold')
-    ax.legend(fontsize=11, loc='lower right')
+    ax.legend(fontsize=11)
     ax.grid(True, alpha=0.3)
     ax.set_ylim([0, 1.05])
     
@@ -824,34 +449,33 @@ def plot_performance_profile(
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"✓ Saved: {output_file}")
+    logger.info(f"✓ Saved: {output_file}")
 
 
-def plot_global_ranks(
-    rank_df: pd.DataFrame,
-    output_file: str,
-    title: str = ''
-):
-    """Plot global average ranks as bar chart."""
-    if rank_df.empty:
+# ============================================================================
+# KNAPSACK VISUALIZATIONS (UPDATED: Smart Data Selection)
+# ============================================================================
+
+def plot_global_ranks(df: pd.DataFrame, output_file: str, title: str = ''):
+    """Plot global average ranks from ranks CSV."""
+    if df.empty:
         return
     
     fig, ax = plt.subplots(figsize=(8, 5))
     
-    algos = rank_df['Algorithm'].values
-    ranks = rank_df['Avg_Rank'].values
+    algos = df['Algorithm'].values
+    ranks = df['Avg_Rank'].values
     colors = [COLORS.get(a, 'gray') for a in algos]
     
     bars = ax.bar(algos, ranks, color=colors, alpha=0.7, edgecolor='black', linewidth=1.5)
     
-    # Add value labels on bars
     for bar, rank in zip(bars, ranks):
         height = bar.get_height()
         ax.text(bar.get_x() + bar.get_width() / 2., height,
                 f'{rank:.2f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
     
     ax.set_ylabel('Average Rank (lower is better)', fontsize=12)
-    ax.set_title(title or 'Global Ranks', fontsize=14, fontweight='bold')
+    ax.set_title(title or 'Global Algorithm Ranks', fontsize=14, fontweight='bold')
     ax.grid(True, alpha=0.3, axis='y')
     ax.set_ylim([0, max(ranks) * 1.15])
     
@@ -859,397 +483,522 @@ def plot_global_ranks(
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"✓ Saved: {output_file}")
+    logger.info(f"✓ Saved: {output_file}")
 
-
-def plot_rastrigin_success_rates(
-    summary_df: pd.DataFrame,
-    output_file: str
-):
-    """Plot success rates at different tolerance levels for Rastrigin."""
-    if summary_df.empty:
-        return
-    
-    # Find all success rate columns
-    sr_cols = [col for col in summary_df.columns if col.startswith('SR_<=')]
-    if not sr_cols:
-        print("Warning: No success rate columns found in Rastrigin summary")
-        return
-    
-    algos = sorted(summary_df['Algorithm'].unique())
-    n_tols = len(sr_cols)
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    x = np.arange(len(algos))
-    width = 0.8 / n_tols
-    
-    for i, sr_col in enumerate(sorted(sr_cols)):
-        # Mean success rate across all configurations
-        sr_mean = summary_df.groupby('Algorithm')[sr_col].mean()
-        values = [sr_mean.get(algo, 0) for algo in algos]
-        
-        # Extract tolerance from column name
-        tol = sr_col.replace('SR_<=', '')
-        
-        ax.bar(x + i * width, values, width, label=f'tol={tol}',
-               color=plt.cm.Blues(0.4 + 0.4 * i / n_tols), alpha=0.8, edgecolor='black', linewidth=0.5)
-    
-    ax.set_xlabel('Algorithm', fontsize=12)
-    ax.set_ylabel('Success Rate (%)', fontsize=12)
-    ax.set_title('Rastrigin: Success Rates at Different Tolerances', fontsize=14, fontweight='bold')
-    ax.set_xticks(x + width * (n_tols - 1) / 2)
-    ax.set_xticklabels(algos)
-    ax.legend(fontsize=10)
-    ax.grid(True, alpha=0.3, axis='y')
-    ax.set_ylim([0, 105])
-    
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✓ Saved: {output_file}")
-
-
-def plot_knapsack_success_rates(
-    summary_df: pd.DataFrame,
-    output_file: str
-):
-    """Plot success rates at different gap levels for Knapsack."""
-    if summary_df.empty:
-        return
-    
-    sr_cols = [col for col in summary_df.columns if col.startswith('SR_Gap_<=')]
-    if not sr_cols:
-        print("Warning: No gap success rate columns found in Knapsack summary")
-        return
-    
-    algos = sorted(summary_df['Algorithm'].unique())
-    n_gaps = len(sr_cols)
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    x = np.arange(len(algos))
-    width = 0.8 / n_gaps
-    
-    for i, sr_col in enumerate(sorted(sr_cols)):
-        sr_mean = summary_df.groupby('Algorithm')[sr_col].mean()
-        values = [sr_mean.get(algo, 0) for algo in algos]
-        
-        gap = sr_col.replace('SR_Gap_<=', '')
-        
-        ax.bar(x + i * width, values, width, label=f'gap ≤ {gap}',
-               color=plt.cm.Greens(0.4 + 0.4 * i / n_gaps), alpha=0.8, edgecolor='black', linewidth=0.5)
-    
-    ax.set_xlabel('Algorithm', fontsize=12)
-    ax.set_ylabel('Success Rate (%)', fontsize=12)
-    ax.set_title('Knapsack: Success Rates at Different Gap Thresholds', fontsize=14, fontweight='bold')
-    ax.set_xticks(x + width * (n_gaps - 1) / 2)
-    ax.set_xticklabels(algos)
-    ax.legend(fontsize=10)
-    ax.grid(True, alpha=0.3, axis='y')
-    ax.set_ylim([0, 105])
-    
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✓ Saved: {output_file}")
-
-
-def plot_rastrigin_hitting_times(
-    summary_df: pd.DataFrame,
-    output_file: str
-):
-    """Plot hitting times (median) for Rastrigin across algorithms and configs."""
-    if summary_df.empty:
-        return
-    
-    ht_cols = [col for col in summary_df.columns if col.startswith('HT_med_<=')]
-    if not ht_cols:
-        print("Warning: No hitting time columns found in Rastrigin summary")
-        return
-    
-    algos = sorted(summary_df['Algorithm'].unique())
-    configs = sorted(summary_df['Configuration'].unique())
-    n_configs = len(configs)
-    
-    fig, ax = plt.subplots(figsize=(11, 6))
-    
-    x = np.arange(len(algos))
-    width = 0.8 / n_configs
-    
-    for i, config in enumerate(configs):
-        df_config = summary_df[summary_df['Configuration'] == config]
-        
-        # Use first hitting time column as representative
-        ht_col = ht_cols[0]
-        ht_values = []
-        for algo in algos:
-            row = df_config[df_config['Algorithm'] == algo]
-            if not row.empty and pd.notna(row[ht_col].values[0]):
-                ht_values.append(row[ht_col].values[0])
-            else:
-                ht_values.append(0)
-        
-        ax.bar(x + i * width, ht_values, width, label=config,
-               alpha=0.8, edgecolor='black', linewidth=0.5)
-    
-    ax.set_xlabel('Algorithm', fontsize=12)
-    ax.set_ylabel(f'Median Hitting Time (evals)', fontsize=12)
-    ax.set_title('Rastrigin: Hitting Times to Target Tolerance', fontsize=14, fontweight='bold')
-    ax.set_xticks(x + width * (n_configs - 1) / 2)
-    ax.set_xticklabels(algos)
-    ax.legend(fontsize=10)
-    ax.grid(True, alpha=0.3, axis='y')
-    ax.set_yscale('log')
-    
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✓ Saved: {output_file}")
-
-
-def plot_knapsack_runtime_quality_improved(
-    summary_df: pd.DataFrame,
-    output_file: str
-):
+def plot_knapsack_gap_comparison(df: pd.DataFrame, output_dir: str):
     """
-    Improved scatter plot: runtime vs quality (gap or normalized value).
-    Bubble size represents feasibility rate.
+    Comprehensive gap comparison: Grid layout showing all combinations.
+    Rows = Scenarios, Columns = N_Items, X-axis = Instance_Type, Bars = Algorithms.
     """
-    if summary_df.empty or 'Mean_Time' not in summary_df.columns:
+    if df.empty or 'Mean_Gap_%' not in df.columns:
+        logger.warning("No gap data available for Knapsack")
         return
     
-    fig, ax = plt.subplots(figsize=(10, 6))
+    scenarios = sorted(df['Scenario'].unique())
+    sizes = sorted(df['N_Items'].unique())
     
-    for algo in sorted(summary_df['Algorithm'].unique()):
-        df_algo = summary_df[summary_df['Algorithm'] == algo]
-        
-        # Prefer gap if available, else use 1 - norm_value
-        if 'Mean_Gap_%' in summary_df.columns:
-            y = df_algo['Mean_Gap_%'].values
-        elif 'Mean_Norm_Value' in summary_df.columns:
-            y = (1.0 - df_algo['Mean_Norm_Value'].values) * 100.0
-        else:
-            continue
-        
-        x = df_algo['Mean_Time'].values
-        
-        # Size based on feasibility rate (if available)
-        if 'Feasibility_Rate' in summary_df.columns:
-            sizes = df_algo['Feasibility_Rate'].values * 2 + 50  # scale 50-250
-        else:
-            sizes = 100
-        
-        ax.scatter(x, y, s=sizes, label=algo, color=COLORS.get(algo, 'gray'),
-                   marker=MARKERS.get(algo, 'o'), alpha=0.6,
-                   edgecolors='black', linewidth=0.5)
+    n_scenarios = len(scenarios)
+    n_sizes = len(sizes)
     
-    ax.set_xlabel('Mean Runtime (seconds)', fontsize=12)
-    ax.set_ylabel('Quality Gap (%)', fontsize=12)
-    ax.set_title('Knapsack: Runtime–Quality Trade-off\n(bubble size = feasibility rate)',
+    fig, axes = plt.subplots(n_scenarios, n_sizes,
+                             figsize=(6 * n_sizes, 5 * n_scenarios),
+                             squeeze=False)
+    
+    for i, scenario in enumerate(scenarios):
+        for j, n_items in enumerate(sizes):
+            ax = axes[i, j]
+            
+            subset = df[(df['Scenario'] == scenario) & (df['N_Items'] == n_items)]
+            
+            if subset.empty:
+                ax.axis('off')
+                continue
+            
+            # Pivot for grouped bar chart: Instance_Type x Algorithm
+            pivot = subset.pivot_table(
+                values='Mean_Gap_%',
+                index='Instance_Type',
+                columns='Algorithm',
+                aggfunc='mean'
+            )
+            
+            if pivot.empty:
+                ax.axis('off')
+                continue
+            
+            # Plot grouped bars
+            pivot.plot(kind='bar', ax=ax, color=[COLORS.get(a, 'gray') for a in pivot.columns],
+                      alpha=0.8, edgecolor='black', linewidth=1)
+            
+            ax.set_title(f'{scenario.replace("_", " ").title()}\nn={n_items}',
+                        fontsize=11, fontweight='bold')
+            ax.set_xlabel('Instance Type' if i == n_scenarios - 1 else '', fontsize=10)
+            ax.set_ylabel('Mean Gap (%)' if j == 0 else '', fontsize=10)
+            ax.legend(fontsize=8, loc='upper right')
+            ax.grid(True, alpha=0.3, axis='y')
+            ax.tick_params(axis='x', rotation=45)
+    
+    plt.suptitle('Knapsack: Optimality Gap Comparison Across All Configurations',
                  fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    
+    output_path = Path(output_dir) / 'knapsack_gap_comparison_grid.png'
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    logger.info(f"✓ Saved: {output_path}")
+
+
+def plot_knapsack_cross_scenario_performance(df: pd.DataFrame, output_dir: str):
+    """
+    Dumbbell plot showing performance difference between repair and penalty.
+    Each subplot = (N_Items, Instance_Type), Y-axis = Algorithms, X-axis = Gap%.
+    """
+    if df.empty or 'Scenario' not in df.columns:
+        return
+    
+    # Check if we have both scenarios
+    scenarios = sorted(df['Scenario'].unique())
+    if len(scenarios) < 2:
+        logger.warning("Need at least 2 scenarios for cross-scenario comparison")
+        return
+    
+    sizes = sorted(df['N_Items'].unique())
+    
+    for n_items in sizes:
+        df_n = df[df['N_Items'] == n_items]
+        inst_types = sorted(df_n['Instance_Type'].unique())
+        
+        n_types = len(inst_types)
+        
+        fig, axes = plt.subplots(1, n_types, figsize=(6 * n_types, 6),
+                                squeeze=False)
+        axes = axes.flatten()
+        
+        for idx, inst_type in enumerate(inst_types):
+            ax = axes[idx]
+            
+            subset = df_n[df_n['Instance_Type'] == inst_type]
+            
+            if subset.empty:
+                ax.axis('off')
+                continue
+            
+            # Pivot: Algorithm x Scenario
+            pivot = subset.pivot_table(
+                values='Mean_Gap_%',
+                index='Algorithm',
+                columns='Scenario',
+                aggfunc='mean'
+            )
+            
+            if pivot.empty or len(pivot.columns) < 2:
+                ax.axis('off')
+                continue
+            
+            algos = pivot.index.tolist()
+            y_pos = np.arange(len(algos))
+            
+            # Plot dumbbells
+            for i, algo in enumerate(algos):
+                vals = pivot.loc[algo].values
+                
+                # Draw line connecting two scenarios
+                ax.plot(vals, [i, i], color='gray', linewidth=2, alpha=0.5, zorder=1)
+                
+                # Draw points
+                for j, (scenario, val) in enumerate(zip(pivot.columns, vals)):
+                    marker = SCENARIO_MARKERS.get(scenario, 'o')
+                    ax.scatter(val, i, s=150, marker=marker, 
+                             color=COLORS.get(algo, 'gray'),
+                             edgecolor='black', linewidth=1.5, 
+                             label=f'{scenario}' if i == 0 else '', zorder=2)
+            
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels(algos)
+            ax.set_xlabel('Mean Optimality Gap (%)', fontsize=11)
+            ax.set_title(f'{inst_type.replace("_", " ").title()}',
+                        fontsize=12, fontweight='bold')
+            ax.grid(True, alpha=0.3, axis='x')
+            
+            if idx == 0:
+                handles, labels = ax.get_legend_handles_labels()
+                # Remove duplicates
+                by_label = dict(zip(labels, handles))
+                ax.legend(by_label.values(), by_label.keys(), fontsize=9, loc='upper right')
+        
+        plt.suptitle(f'Knapsack Cross-Scenario Performance - n={n_items}\n(lines connect same algorithm across scenarios)',
+                     fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        
+        output_path = Path(output_dir) / f'knapsack_cross_scenario_n{n_items}.png'
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        logger.info(f"✓ Saved: {output_path}")
+
+
+def plot_knapsack_feasibility_heatmap(df: pd.DataFrame, output_dir: str):
+    """
+    Heatmap showing feasibility rates across all configurations.
+    Perfect for quickly validating that all solutions are valid.
+    """
+    if df.empty or 'Feasibility_%' not in df.columns:
+        return
+    
+    # Create multi-index for rows
+    df_copy = df.copy()
+    df_copy['Config'] = df_copy['N_Items'].astype(str) + '_' + \
+                        df_copy['Instance_Type'] + '_' + \
+                        df_copy['Scenario']
+    
+    # Pivot: Config x Algorithm
+    pivot = df_copy.pivot_table(
+        values='Feasibility_%',
+        index='Config',
+        columns='Algorithm',
+        aggfunc='mean'
+    )
+    
+    if pivot.empty:
+        return
+    
+    # Sort by N_Items and Scenario
+    pivot = pivot.sort_index()
+    
+    fig, ax = plt.subplots(figsize=(10, max(6, len(pivot) * 0.5)))
+    
+    # Create heatmap with custom colormap (green = 100%, yellow/red = below 100%)
+    from matplotlib.colors import LinearSegmentedColormap
+    colors_map = ['#d73027', '#fee08b', '#d9ef8b', '#1a9850']
+    n_bins = 100
+    cmap = LinearSegmentedColormap.from_list('feasibility', colors_map, N=n_bins)
+    
+    sns.heatmap(pivot, annot=True, fmt='.1f', cmap=cmap, vmin=90, vmax=100,
+                cbar_kws={'label': 'Feasibility Rate (%)'}, ax=ax,
+                linewidths=0.5, linecolor='gray')
+    
+    ax.set_xlabel('Algorithm', fontsize=12)
+    ax.set_ylabel('Configuration (Size_Type_Scenario)', fontsize=12)
+    ax.set_title('Knapsack: Feasibility Rate Heatmap\n(Green = 100% valid solutions)',
+                 fontsize=14, fontweight='bold')
+    
+    plt.tight_layout()
+    
+    output_path = Path(output_dir) / 'knapsack_feasibility_heatmap.png'
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    logger.info(f"✓ Saved: {output_path}")
+
+
+def plot_knapsack_scenario_impact(df: pd.DataFrame, output_dir: str):
+    """
+    Bar chart showing percentage improvement from penalty to repair for each algorithm.
+    Aggregated across all instances.
+    """
+    if df.empty or 'Scenario' not in df.columns:
+        return
+    
+    scenarios = sorted(df['Scenario'].unique())
+    if len(scenarios) < 2:
+        logger.warning("Need both repair and penalty scenarios")
+        return
+    
+    # Assume scenarios are 'penalty' and 'repair'
+    penalty_scenario = 'penalty'
+    repair_scenario = 'repair'
+    
+    if penalty_scenario not in scenarios or repair_scenario not in scenarios:
+        logger.warning(f"Expected scenarios 'repair' and 'penalty', found: {scenarios}")
+        return
+    
+    algos = sorted(df['Algorithm'].unique())
+    
+    improvements = []
+    
+    for algo in algos:
+        penalty_gap = df[(df['Algorithm'] == algo) & (df['Scenario'] == penalty_scenario)]['Mean_Gap_%'].mean()
+        repair_gap = df[(df['Algorithm'] == algo) & (df['Scenario'] == repair_scenario)]['Mean_Gap_%'].mean()
+        
+        if pd.notna(penalty_gap) and pd.notna(repair_gap) and penalty_gap > 0:
+            improvement = ((penalty_gap - repair_gap) / penalty_gap) * 100.0
+            improvements.append(improvement)
+        else:
+            improvements.append(0)
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    colors = [COLORS.get(a, 'gray') for a in algos]
+    bars = ax.bar(algos, improvements, color=colors, alpha=0.8, edgecolor='black', linewidth=1.5)
+    
+    # Add value labels
+    for bar, val in zip(bars, improvements):
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2., height,
+                f'{val:+.1f}%', ha='center', va='bottom' if val >= 0 else 'top',
+                fontsize=11, fontweight='bold')
+    
+    ax.axhline(y=0, color='black', linestyle='-', linewidth=1)
+    ax.set_xlabel('Algorithm', fontsize=12)
+    ax.set_ylabel('Gap Improvement from Penalty to Repair (%)', fontsize=12)
+    ax.set_title('Knapsack: Impact of Repair Strategy\n(Positive = Repair is better)',
+                 fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    
+    output_path = Path(output_dir) / 'knapsack_scenario_impact.png'
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    logger.info(f"✓ Saved: {output_path}")
+
+
+def plot_knapsack_algorithm_ranking_by_size(df: pd.DataFrame, output_dir: str):
+    """
+    Show how algorithm rankings change with problem size.
+    Line plot: X = N_Items, Y = Average Rank, Lines = Algorithms.
+    """
+    if df.empty:
+        return
+    
+    sizes = sorted(df['N_Items'].unique())
+    algos = sorted(df['Algorithm'].unique())
+    
+    # Calculate average gap for each (size, algo) combination
+    ranks_by_size = {}
+    
+    for n_items in sizes:
+        df_n = df[df['N_Items'] == n_items]
+        
+        # Calculate mean gap for each algorithm
+        algo_gaps = {}
+        for algo in algos:
+            mean_gap = df_n[df_n['Algorithm'] == algo]['Mean_Gap_%'].mean()
+            if pd.notna(mean_gap):
+                algo_gaps[algo] = mean_gap
+        
+        # Rank algorithms (1 = best)
+        sorted_algos = sorted(algo_gaps.items(), key=lambda x: x[1])
+        ranks = {algo: rank + 1 for rank, (algo, _) in enumerate(sorted_algos)}
+        
+        ranks_by_size[n_items] = ranks
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    for algo in algos:
+        ranks = [ranks_by_size[n].get(algo, np.nan) for n in sizes]
+        
+        ax.plot(sizes, ranks, label=algo, marker=MARKERS.get(algo, 'o'),
+                color=COLORS.get(algo, 'gray'), linewidth=2.5, markersize=10)
+    
+    ax.set_xlabel('Number of Items', fontsize=12)
+    ax.set_ylabel('Average Rank (lower = better)', fontsize=12)
+    ax.set_title('Knapsack: Algorithm Ranking by Problem Size\n(Based on Mean Optimality Gap)',
+                 fontsize=14, fontweight='bold')
+    ax.set_xticks(sizes)
+    ax.set_yticks(range(1, len(algos) + 1))
+    ax.invert_yaxis()  # Best rank (1) at top
     ax.legend(fontsize=11)
     ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    
+    output_path = Path(output_dir) / 'knapsack_ranking_by_size.png'
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"✓ Saved: {output_file}")
+    logger.info(f"✓ Saved: {output_path}")
 
 
-# ============================================================================
-# MASTER GENERATION FUNCTION
-# ============================================================================
-
-def generate_all_plots(results_dir: str = 'benchmark/results',
-                      output_dir: str = 'benchmark/results/plots'):
-    """Generate all academic-grade visualization plots."""
+def generate_knapsack_visualizations(
+    summaries: Dict[str, pd.DataFrame],
+    ranks_df: Optional[pd.DataFrame],
+    output_dir: str
+):
+    """
+    Master function to generate all Knapsack visualizations.
+    Intelligently selects appropriate summary level for each plot type.
     
+    Parameters
+    ----------
+    summaries : Dict[str, pd.DataFrame]
+        Dictionary with keys 'by_instance' and/or 'by_type'
+    ranks_df : pd.DataFrame, optional
+        Global ranks data
+    output_dir : str
+        Output directory for plots
+    """
+    logger.info("--- Generating Knapsack Visualizations ---")
+    
+    df_by_type = summaries.get('by_type')
+    df_by_instance = summaries.get('by_instance')
+    
+    # ========================================================================
+    # AGGREGATE PLOTS (Use by_type if available, else aggregate from by_instance)
+    # ========================================================================
+    
+    df_for_aggregate = df_by_type if df_by_type is not None else df_by_instance
+    
+    if df_for_aggregate is not None:
+        logger.info(f"Using '{'by_type' if df_by_type is not None else 'by_instance'}' summary for aggregate plots...")
+        
+        # 1. Gap comparison grid
+        plot_knapsack_gap_comparison(df_for_aggregate, output_dir)
+        
+        # 2. Cross-scenario performance
+        plot_knapsack_cross_scenario_performance(df_for_aggregate, output_dir)
+        
+        # 3. Feasibility heatmap
+        plot_knapsack_feasibility_heatmap(df_for_aggregate, output_dir)
+        
+        # 4. Scenario impact
+        plot_knapsack_scenario_impact(df_for_aggregate, output_dir)
+        
+        # 5. Algorithm ranking by size
+        plot_knapsack_algorithm_ranking_by_size(df_for_aggregate, output_dir)
+    else:
+        logger.warning("No summary data available for aggregate plots")
+    
+    # ========================================================================
+    # DETAILED PLOTS (REQUIRE by_instance)
+    # ========================================================================
+    
+    if df_by_instance is not None:
+        logger.info("Using 'by_instance' summary for detailed plots...")
+        
+        # Performance profile (MUST use instance-level data)
+        if 'Mean_Gap_%' in df_by_instance.columns:
+            plot_performance_profile(
+                df_by_instance, 
+                'Mean_Gap_%',
+                str(Path(output_dir) / 'knapsack_perf_profile.png'),
+                minimize=True,
+                title='Knapsack Performance Profile (Gap %)'
+            )
+        else:
+            logger.warning("'Mean_Gap_%' column not found in by_instance summary")
+    else:
+        logger.warning("'by_instance' summary not found. Skipping Performance Profile plot.")
+    
+    # ========================================================================
+    # GLOBAL RANKS PLOT
+    # ========================================================================
+    
+    if ranks_df is not None:
+        plot_global_ranks(
+            ranks_df,
+            str(Path(output_dir) / 'knapsack_global_ranks.png'),
+            title='Knapsack: Global Algorithm Ranks (by Gap %)'
+        )
+    
+    logger.info("✓ Knapsack visualizations complete")
+
+
+# ============================================================================
+# MASTER GENERATION FUNCTION (UPDATED)
+# ============================================================================
+
+def generate_all_plots(
+    summary_dir: str = 'benchmark/results/summaries',
+    output_dir: str = 'benchmark/results/plots'
+):
+    """
+    Generate all visualizations from CSV summaries.
+    
+    This is the ONLY entry point - reads CSV, not JSON.
+    """
+    summary_path = Path(summary_dir)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
     print("=" * 100)
-    print("GENERATING ACADEMIC-GRADE BENCHMARK VISUALIZATIONS")
+    print("GENERATING VISUALIZATIONS FROM CSV SUMMARIES")
     print("=" * 100)
     
+    # Load Rastrigin summaries
+    rastrigin_df = load_summary_data(summary_path / 'rastrigin_summary.csv')
+    rastrigin_ranks_df = load_summary_data(summary_path / 'rastrigin_global_ranks.csv')
+    
+    # Load Knapsack summaries (UPDATED: Load multiple levels)
+    knapsack_summaries = load_available_summaries(summary_path, 'knapsack_summary')
+    knapsack_ranks_df = load_summary_data(summary_path / 'knapsack_global_ranks.csv')
+    
     # RASTRIGIN PLOTS
-    print("\n[RASTRIGIN BENCHMARKS]")
-    configs = ['quick_convergence', 'multimodal_escape', 'scalability']
-    
-    for config_name in configs:
-        print(f"\nProcessing {config_name}...")
+    if rastrigin_df is not None:
+        print("\n[RASTRIGIN VISUALIZATIONS]")
         
-        plot_rastrigin_convergence(
-            results_dir, config_name,
-            str(output_path / f'rastrigin_{config_name}_convergence.png')
-        )
+        plot_rastrigin_boxplots_by_scenario(rastrigin_df, output_dir)
+        plot_rastrigin_success_breakdown(rastrigin_df, output_dir)
+        plot_rastrigin_cross_scenario_comparison(rastrigin_df, output_dir)
+        plot_rastrigin_hitting_times(rastrigin_df, output_dir)
         
-        plot_rastrigin_boxplots(
-            results_dir, config_name,
-            str(output_path / f'rastrigin_{config_name}_boxplot.png')
-        )
+        # Performance profile
+        if 'AUC_Median' in rastrigin_df.columns:
+            plot_performance_profile(
+                rastrigin_df, 'AUC_Median',
+                str(output_path / 'rastrigin_perf_profile.png'),
+                minimize=True,
+                title='Rastrigin Performance Profile (AUC)'
+            )
         
-        plot_rastrigin_ecdf(
-            results_dir, config_name,
-            str(output_path / f'rastrigin_{config_name}_ecdf.png')
-        )
+        # Global ranks
+        if rastrigin_ranks_df is not None:
+            plot_global_ranks(
+                rastrigin_ranks_df,
+                str(output_path / 'rastrigin_global_ranks.png'),
+                title='Rastrigin: Global Algorithm Ranks'
+            )
     
-    print("\nGenerating Rastrigin scalability plot...")
-    plot_rastrigin_scalability(
-        results_dir,
-        str(output_path / 'rastrigin_scalability.png')
-    )
-    
-    # KNAPSACK PLOTS
-    print("\n[KNAPSACK BENCHMARKS]")
-    
-    configs = discover_knapsack_configs(results_dir)
-    
-    if not configs:
-        print("Warning: No knapsack results found")
+    # KNAPSACK PLOTS (UPDATED: Use smart data selection)
+    if knapsack_summaries:
+        print("\n[KNAPSACK VISUALIZATIONS]")
+        print(f"  Available summaries: {list(knapsack_summaries.keys())}")
+        generate_knapsack_visualizations(knapsack_summaries, knapsack_ranks_df, output_dir)
     else:
-        print(f"Found {len(configs)} knapsack configurations")
-        
-        # Per-instance plots
-        for n_items, instance_type, seed in configs:
-            print(f"\nProcessing Knapsack n={n_items}, {instance_type}, seed={seed}...")
-            
-            prefix = f'knapsack_n{n_items}_{instance_type}_seed{seed}'
-            
-            plot_knapsack_convergence(
-                results_dir, n_items, instance_type, seed,
-                str(output_path / f'{prefix}_convergence.png')
-            )
-            
-            plot_knapsack_gap(
-                results_dir, n_items, instance_type, seed,
-                str(output_path / f'{prefix}_gap_boxplot.png')
-            )
-        
-        # Aggregate plots
-        print("\nGenerating Knapsack aggregate plots...")
-        
-        plot_knapsack_aggregate_feasibility(
-            results_dir,
-            str(output_path / 'knapsack_feasibility.png')
-        )
-        
-        plot_knapsack_aggregate_capacity(
-            results_dir,
-            str(output_path / 'knapsack_capacity_utilization.png')
-        )
-        
-        plot_knapsack_runtime_quality(
-            results_dir,
-            str(output_path / 'knapsack_runtime_quality.png')
-        )
-        
-        # Scalability plots (for instance types with multiple sizes)
-        instance_types_seeds = set((t, s) for _, t, s in configs)
-        for instance_type, seed in instance_types_seeds:
-            sizes_for_type = [n for n, t, s in configs if t == instance_type and s == seed]
-            if len(sizes_for_type) > 1:  # Only if multiple sizes exist
-                plot_knapsack_scalability(
-                    results_dir, instance_type, seed,
-                    str(output_path / f'knapsack_{instance_type}_seed{seed}_scalability.png')
-                )
-    
-    # ADVANCED PLOTS FROM SUMMARY FILES
-    print("\n[ADVANCED PLOTS FROM SUMMARIES]")
-    
-    # Rastrigin advanced plots
-    rastrigin_summary_path = Path(results_dir) / 'rastrigin_summary.csv'
-    if rastrigin_summary_path.exists():
-        print("\nGenerating Rastrigin advanced plots...")
-        df_r = pd.read_csv(rastrigin_summary_path)
-        
-        plot_performance_profile(
-            df_r, 'AUC_median',
-            str(output_path / 'rastrigin_perf_profile_auc.png'),
-            minimize=True,
-            title='Rastrigin Performance Profile (AUC)'
-        )
-        
-        plot_rastrigin_success_rates(
-            df_r,
-            str(output_path / 'rastrigin_success_rates.png')
-        )
-        
-        plot_rastrigin_hitting_times(
-            df_r,
-            str(output_path / 'rastrigin_hitting_times.png')
-        )
-    
-    # Rastrigin global ranks
-    rastrigin_ranks_path = Path(results_dir) / 'rastrigin_global_ranks.csv'
-    if rastrigin_ranks_path.exists():
-        print("Plotting Rastrigin global ranks...")
-        df_ranks = pd.read_csv(rastrigin_ranks_path)
-        
-        plot_global_ranks(
-            df_ranks,
-            str(output_path / 'rastrigin_global_ranks.png'),
-            title='Rastrigin: Global Average Ranks (by AUC)'
-        )
-    
-    # Knapsack advanced plots
-    knapsack_summary_path = Path(results_dir) / 'knapsack_summary.csv'
-    if knapsack_summary_path.exists():
-        print("\nGenerating Knapsack advanced plots...")
-        df_k = pd.read_csv(knapsack_summary_path)
-        
-        plot_performance_profile(
-            df_k, 'Mean_Gap_%',
-            str(output_path / 'knapsack_perf_profile_gap.png'),
-            minimize=True,
-            title='Knapsack Performance Profile (Gap%)'
-        )
-        
-        plot_knapsack_success_rates(
-            df_k,
-            str(output_path / 'knapsack_success_rates.png')
-        )
-        
-        plot_knapsack_runtime_quality_improved(
-            df_k,
-            str(output_path / 'knapsack_runtime_quality_improved.png')
-        )
-    
-    # Knapsack global ranks
-    knapsack_ranks_path = Path(results_dir) / 'knapsack_global_ranks.csv'
-    if knapsack_ranks_path.exists():
-        print("Plotting Knapsack global ranks...")
-        df_ranks = pd.read_csv(knapsack_ranks_path)
-        
-        plot_global_ranks(
-            df_ranks,
-            str(output_path / 'knapsack_global_ranks.png'),
-            title='Knapsack: Global Average Ranks (by Gap%)'
-        )
+        logger.warning("No Knapsack summary data found")
     
     print("\n" + "=" * 100)
     print(f"All plots saved to: {output_path}")
     print("=" * 100)
 
 
-if __name__ == "__main__":
+# ============================================================================
+# MAIN
+# ============================================================================
+
+def main():
     import argparse
     
-    parser = argparse.ArgumentParser(description='Generate academic-grade benchmark visualizations')
-    parser.add_argument('--results-dir', type=str,
-                        default='benchmark/results',
-                        help='Results directory (contains rastrigin/ and knapsack/)')
-    parser.add_argument('--output-dir', type=str,
-                        default='benchmark/results/plots',
-                        help='Output directory for plots')
-    parser.add_argument('--problem', type=str, choices=['all', 'rastrigin', 'knapsack'],
-                        default='all',
-                        help='Which problem to visualize')
+    parser = argparse.ArgumentParser(
+        description='Generate visualizations from CSV summaries',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Generate all plots from default location
+  python benchmark/visualize.py
+  
+  # Custom summary and output directories
+  python benchmark/visualize.py --summary-dir analysis/results --output-dir plots
+        """
+    )
+    
+    parser.add_argument(
+        '--summary-dir', type=str,
+        default='benchmark/results/summaries',
+        help='Directory containing CSV summary files'
+    )
+    parser.add_argument(
+        '--output-dir', type=str,
+        default='benchmark/results/plots',
+        help='Output directory for plots'
+    )
     
     args = parser.parse_args()
     
-    generate_all_plots(args.results_dir, args.output_dir)
+    generate_all_plots(args.summary_dir, args.output_dir)
+
+
+if __name__ == "__main__":
+    main()

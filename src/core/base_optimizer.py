@@ -8,7 +8,7 @@ must implement to ensure consistency across the project.
 
 from abc import ABC, abstractmethod
 import numpy as np
-from typing import Any, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 
 class BaseOptimizer(ABC):
@@ -62,7 +62,7 @@ class BaseOptimizer(ABC):
     """
 
     @abstractmethod
-    def run(self, max_iter: int) -> Tuple[np.ndarray, float, List[float], List[np.ndarray]]:
+    def run(self, max_iter: int) -> Tuple[np.ndarray, float, List[float], List[Dict[str, float]]]:
         """
         Execute the optimization algorithm for a maximum number of iterations.
         
@@ -92,39 +92,36 @@ class BaseOptimizer(ABC):
             fitness found up to and including iteration t.
             This is used for plotting convergence curves.
         
-        trajectory : List[np.ndarray]
-            Trajectory of the population/solution at each iteration.
-            Used for visualization and analysis of convergence behavior.
-            - For population-based algorithms (FA, GA): 
-              trajectory[t] has shape (population_size, dim) or (population_size, num_items)
-            - For single-solution algorithms (Hill Climbing, SA):
-              trajectory[t] has shape (1, dim) or (1, num_items)
-              (wrap solution in a list/array for consistency)
+        stats_history : List[Dict[str, float]]
+            Statistical summary of population/solution at each iteration.
+            Each dict contains:
+            - 'gen': Generation number
+            - 'best_fitness': Best fitness in this generation
+            - 'mean_fitness': Mean fitness of population
+            - 'std_fitness': Standard deviation of fitness
+            - 'diversity': Population diversity (mean distance to centroid)
+            For single-solution algorithms (SA, HC), some fields may be None.
         
         Notes
         -----
-        All algorithms are minimizers. If you have a maximization problem,
-        the problem's evaluate() method should negate the objective function value.
+        **IMPORTANT CHANGE**: The fourth return value has been changed from
+        `trajectory` (full population history) to `stats_history` (statistical
+        summaries). This dramatically reduces memory usage and file sizes while
+        providing richer analytical information.
         
-        Reproducibility: When the same seed is used, running this method multiple
-        times should produce identical results (same best_solution, best_fitness,
-        and history_best values).
+        Old signature (deprecated):
+            return best_solution, best_fitness, history_best, trajectory
         
-        Examples
-        --------
-        >>> from problems.continuous.sphere import SphereProblem
-        >>> problem = SphereProblem(dim=10)
-        >>> optimizer = SomeOptimizer(problem=problem, seed=42)
-        >>> best_sol, best_fit, history, trajectory = optimizer.run(max_iter=100)
-        >>> print(f"Best fitness: {best_fit}")
+        New signature:
+            return best_solution, best_fitness, history_best, stats_history
         
-        Verify reproducibility:
-        >>> optimizer1 = SomeOptimizer(problem=problem, seed=42)
-        >>> optimizer2 = SomeOptimizer(problem=problem, seed=42)
-        >>> sol1, fit1, _, _ = optimizer1.run(max_iter=100)
-        >>> sol2, fit2, _, _ = optimizer2.run(max_iter=100)
-        >>> assert fit1 == fit2  # Should be identical
-        >>> assert np.allclose(sol1, sol2)  # Should be identical
+        For population-based algorithms (FA, GA), compute:
+        - diversity = mean(distance from each individual to population centroid)
+        
+        For single-solution algorithms (SA, HC):
+        - Set mean_fitness = best_fitness
+        - Set std_fitness = 0.0
+        - Set diversity = 0.0 (no population)
         """
         pass
 

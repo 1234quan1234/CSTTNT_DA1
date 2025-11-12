@@ -155,19 +155,10 @@ def run_single_experiment_safe(algo_name, problem, params, seed, max_iter, thres
     """
     Run single experiment with timeout and error handling.
     
-    Parameters
-    ----------
-    thresholds : Dict[str, float]
-        Dictionary of success levels (e.g., {'gold': 1.0, 'silver': 10.0, 'bronze': 50.0})
-    problem_seed : int
-        Seed used for problem initialization (for tracking)
-    timeout_seconds : int
-        Maximum execution time in seconds (default: 5 minutes)
-        
     Returns
     -------
     dict
-        Result dict with status tracking and multi-level success metrics
+        Result dict with stats_history instead of full trajectory
     """
     import time
     from src.swarm.fa import FireflyContinuousOptimizer
@@ -182,19 +173,20 @@ def run_single_experiment_safe(algo_name, problem, params, seed, max_iter, thres
         'GA': GeneticAlgorithmOptimizer
     }
     
-    # Base result structure with NEW multi-level success tracking
+    # Base result structure
     base_result = {
         'algorithm': algo_name,
         'seed': seed,
         'algo_seed': seed,
         'problem_seed': problem_seed,
         'best_fitness': None,
-        'history': [],
+        'history': [],  # Keep for backward compatibility
+        'stats_history': [],  # NEW: Statistical summaries
         'elapsed_time': 0.0,
         'evaluations': 0,
         'budget': 0,
         'budget_utilization': 0.0,
-        'success_levels': {},  # NEW: Replaces single 'success' field
+        'success_levels': {},
         'status': 'error',
         'error_type': None,
         'error_msg': None
@@ -222,7 +214,7 @@ def run_single_experiment_safe(algo_name, problem, params, seed, max_iter, thres
             signal.alarm(timeout_seconds)
         
         start_time = time.time()
-        _, best_fitness, history, _ = optimizer.run(max_iter=max_iter)
+        _, best_fitness, history, stats_history = optimizer.run(max_iter=max_iter)  # NEW
         elapsed = time.time() - start_time
         
         # Cancel timeout
@@ -294,16 +286,17 @@ def run_single_experiment_safe(algo_name, problem, params, seed, max_iter, thres
                 'hit_evaluations': int(hit_evals) if hit_evals is not None else None
             }
         
-        # Success case with NEW multi-level tracking
+        # Success case
         base_result.update({
             'status': 'ok',
             'best_fitness': float(best_fitness),
-            'history': [float(h) for h in history],
+            'history': [float(h) for h in history],  # Keep for backward compatibility
+            'stats_history': stats_history,  # NEW: Rich statistical data
             'elapsed_time': float(elapsed),
             'evaluations': int(actual_evaluations),
             'budget': int(budget),
             'budget_utilization': float(actual_evaluations / budget),
-            'success_levels': success_levels,  # NEW: Multi-level success
+            'success_levels': success_levels,
             'error_type': None,
             'error_msg': None
         })

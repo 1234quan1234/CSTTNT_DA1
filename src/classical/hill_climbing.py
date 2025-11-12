@@ -10,7 +10,7 @@ References
 """
 
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 import logging
 
 from ..core.base_optimizer import BaseOptimizer
@@ -135,14 +135,9 @@ class HillClimbingOptimizer(BaseOptimizer):
         else:
             raise NotImplementedError(f"Unsupported problem type: {repr_type}")
     
-    def run(self, max_iter: int) -> Tuple[np.ndarray, float, List[float], List[np.ndarray]]:
+    def run(self, max_iter: int) -> Tuple[np.ndarray, float, List[float], List[Dict[str, float]]]:
         """
         Run Hill Climbing for max_iter iterations.
-        
-        Parameters
-        ----------
-        max_iter : int
-            Maximum number of iterations.
         
         Returns
         -------
@@ -152,8 +147,8 @@ class HillClimbingOptimizer(BaseOptimizer):
             Best fitness value (minimum).
         history_best : List[float]
             Best fitness at each iteration.
-        trajectory : List[np.ndarray]
-            Current solution at each iteration.
+        stats_history : List[Dict[str, float]]
+            For HC (single solution), diversity is always 0.
         """
         # Initialize with random solution
         self.current_solution = self.problem.init_solution(self.rng, n=1)[0]
@@ -167,7 +162,7 @@ class HillClimbingOptimizer(BaseOptimizer):
         self.no_improvement_count = 0
         
         history_best = []
-        trajectory = []
+        stats_history = []
         
         for iteration in range(max_iter):
             # Check for restart
@@ -205,15 +200,23 @@ class HillClimbingOptimizer(BaseOptimizer):
             else:
                 self.no_improvement_count += 1
             
+            # For single-solution: no population diversity
+            stats_history.append({
+                'gen': iteration,
+                'best_fitness': float(self.best_fitness),
+                'mean_fitness': float(self.best_fitness),
+                'std_fitness': 0.0,
+                'diversity': 0.0
+            })
+            
             # Track progress
             history_best.append(self.best_fitness)
-            trajectory.append(self.current_solution.reshape(1, -1).copy())
         
         return (
             self.best_solution.copy(),
             self.best_fitness,
             history_best,
-            trajectory
+            stats_history
         )
 
 
@@ -344,9 +347,6 @@ if __name__ == "__main__":
     print("=" * 60)
     print("All Hill Climbing tests completed!")
     print("=" * 60)
-
-    
-    best_coloring, best_conflicts, history_gc, _ = hc_gc.run(max_iter=30)
     
     print(f"Initial conflicts: {history_gc[0]:.0f}")
     print(f"Final conflicts: {history_gc[-1]:.0f}")

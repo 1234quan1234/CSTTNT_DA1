@@ -65,7 +65,7 @@ def demo_fa_rastrigin():
         seed=seed
     )
     
-    best_sol, best_fit, history, trajectory = optimizer.run(max_iter=max_iter)
+    best_sol, best_fit, history, stats_history = optimizer.run(max_iter=max_iter)  # UPDATED
     
     print(f"\nResults:")
     print(f"  Initial fitness: {history[0]:.6f}")
@@ -73,6 +73,15 @@ def demo_fa_rastrigin():
     print(f"  Improvement:     {history[0] - history[-1]:.6f}")
     print(f"  Improvement %:   {100 * (history[0] - history[-1]) / history[0]:.2f}%")
     print(f"  Best solution:   {best_sol[:3]}... (showing first 3 dims)")
+    
+    # NEW: Show diversity statistics
+    if stats_history:
+        initial_div = stats_history[0]['diversity']
+        final_div = stats_history[-1]['diversity']
+        print(f"\n  Population Diversity:")
+        print(f"    Initial: {initial_div:.4f}")
+        print(f"    Final:   {final_div:.4f}")
+        print(f"    Loss:    {100*(initial_div-final_div)/initial_div:.1f}%")
     
     # Visualize convergence
     plot_convergence(
@@ -326,7 +335,7 @@ def main():
         print("=" * 70)
         print("\nWhat you've seen:")
         print("  ✓ FA on Rastrigin function (continuous multimodal)")
-        print("  ✓ FA on 0/1 Knapsack problem (discrete)")
+        print("  ✓ FA on 0/1 Knapsack problem (discrete with repair/penalty strategies)")
         print("  ✓ Algorithm comparison (FA, SA, HC, GA)")
         print("  ✓ Parameter sensitivity analysis")
         print("\nVisualization files saved to results/:")
@@ -340,12 +349,12 @@ def main():
         print(f"  • Rastrigin: {rastrigin_result['initial']:.6f} → {rastrigin_result['final']:.6f}")
         print(f"  • Knapsack: {-knapsack_result['initial']:.2f} → {-knapsack_result['final']:.2f} (value)")
         print(f"  • Total visualizations: 6 plots")
-        print("\nNext steps:")
-        print("  • Run notebooks/fa_visualization.ipynb for interactive demos")
-        print("  • Customize parameters in each demo function")
-        print("  • Add statistical analysis with multiple seeds")
-        print("  • Create animations for swarm movement")
-        print("\nSee README.md and QUICKSTART.md for more details!")
+        print("\n✨ Next steps:")
+        print("  • Run full benchmarks: python benchmark/run_all.py --quick")
+        print("  • Analyze results: python benchmark/analyze_results.py --problem all")
+        print("  • Generate plots: python benchmark/visualize.py")
+        print("  • Explore notebooks: jupyter notebook notebooks/fa_visualization.ipynb")
+        print("\nSee README.md and benchmark/README.md for more details!")
         print("=" * 70 + "\n")
     
     except Exception as e:

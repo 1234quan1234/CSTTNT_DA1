@@ -10,7 +10,7 @@ References
 """
 
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 import logging
 
 from ..core.base_optimizer import BaseOptimizer
@@ -220,14 +220,9 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         else:
             raise NotImplementedError(f"Mutation not implemented for {repr_type}")
     
-    def run(self, max_iter: int) -> Tuple[np.ndarray, float, List[float], List[np.ndarray]]:
+    def run(self, max_iter: int) -> Tuple[np.ndarray, float, List[float], List[Dict[str, float]]]:
         """
         Run Genetic Algorithm for max_iter generations.
-        
-        Parameters
-        ----------
-        max_iter : int
-            Maximum number of generations.
         
         Returns
         -------
@@ -237,14 +232,14 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
             Best fitness value (minimum).
         history_best : List[float]
             Best fitness at each generation.
-        trajectory : List[np.ndarray]
-            Population at each generation, shape (pop_size, problem_size).
+        stats_history : List[Dict[str, float]]
+            Statistical summary at each generation.
         """
         # Initialize
         self._init_population()
         
         history_best = []
-        trajectory = []
+        stats_history = []
         
         for generation in range(max_iter):
             # Sort population by fitness for elitism
@@ -286,15 +281,32 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
             self.population = np.array(new_population[:self.pop_size])
             self.fitness = np.array([self.problem.evaluate(ind) for ind in self.population])
             
-            # Track best
-            best_sol, best_fit = get_best_solution(self.population, self.fitness)
-            history_best.append(best_fit)
-            trajectory.append(self.population.copy())
+            # --- COMPUTE POPULATION STATISTICS ---
+            best_fit_gen = float(np.min(self.fitness))
+            mean_fit_gen = float(np.mean(self.fitness))
+            std_fit_gen = float(np.std(self.fitness))
+            
+            # Compute diversity: mean distance to centroid
+            centroid = np.mean(self.population, axis=0)
+            distances = np.linalg.norm(self.population - centroid, axis=1)
+            diversity_gen = float(np.mean(distances))
+            
+            # Store statistics
+            stats_history.append({
+                'gen': generation,
+                'best_fitness': best_fit_gen,
+                'mean_fitness': mean_fit_gen,
+                'std_fitness': std_fit_gen,
+                'diversity': diversity_gen
+            })
+            
+            # Track best for backward compatibility
+            history_best.append(best_fit_gen)
         
         # Final best solution
         best_solution, best_fitness = get_best_solution(self.population, self.fitness)
         
-        return best_solution, best_fitness, history_best, trajectory
+        return best_solution, best_fitness, history_best, stats_history
     
     # ========== Repair Methods ==========
     def _repair_knapsack(self, individual: np.ndarray) -> np.ndarray:
@@ -313,4 +325,3 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
             return x
 
         return self.problem.greedy_repair(x)
-    

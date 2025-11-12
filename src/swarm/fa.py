@@ -13,7 +13,7 @@ References
 """
 
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 # Use relative imports
 from ..core.base_optimizer import BaseOptimizer
@@ -174,14 +174,9 @@ class FireflyContinuousOptimizer(BaseOptimizer):
         # Update fitness
         self.fitness[i] = self.problem.evaluate(self.positions[i])
     
-    def run(self, max_iter: int) -> Tuple[np.ndarray, float, List[float], List[np.ndarray]]:
+    def run(self, max_iter: int) -> Tuple[np.ndarray, float, List[float], List[Dict[str, float]]]:
         """
         Run Firefly Algorithm for max_iter iterations.
-        
-        Parameters
-        ----------
-        max_iter : int
-            Maximum number of iterations.
         
         Returns
         -------
@@ -191,19 +186,14 @@ class FireflyContinuousOptimizer(BaseOptimizer):
             Best fitness value (minimum).
         history_best : List[float]
             Best fitness at each iteration.
-        trajectory : List[np.ndarray]
-            Population at each iteration, each element has shape (n_fireflies, dim).
-        
-        Notes
-        -----
-        Convergence typically occurs within 50-200 iterations for most problems.
-        Monitor history_best to detect convergence plateau.
+        stats_history : List[Dict[str, float]]
+            Statistical summary at each iteration.
         """
         # Initialize
         self._init_population()
         
         history_best = []
-        trajectory = []
+        stats_history = []
         
         for iteration in range(max_iter):
             # Compute brightness (higher is better → negate fitness)
@@ -219,15 +209,32 @@ class FireflyContinuousOptimizer(BaseOptimizer):
                     if brightness[j] > brightness[i]:
                         self._move_firefly(i, j, dist_matrix)
             
-            # Track best solution
-            best_sol, best_fit = get_best_solution(self.positions, self.fitness)
-            history_best.append(best_fit)
-            trajectory.append(self.positions.copy())
+            # --- COMPUTE POPULATION STATISTICS ---
+            best_fit_gen = float(np.min(self.fitness))
+            mean_fit_gen = float(np.mean(self.fitness))
+            std_fit_gen = float(np.std(self.fitness))
+            
+            # Compute diversity: mean distance to centroid
+            centroid = np.mean(self.positions, axis=0)
+            distances = np.linalg.norm(self.positions - centroid, axis=1)
+            diversity_gen = float(np.mean(distances))
+            
+            # Store statistics
+            stats_history.append({
+                'gen': iteration,
+                'best_fitness': best_fit_gen,
+                'mean_fitness': mean_fit_gen,
+                'std_fitness': std_fit_gen,
+                'diversity': diversity_gen
+            })
+            
+            # Track best for backward compatibility
+            history_best.append(best_fit_gen)
         
         # Final best solution
         best_solution, best_fitness = get_best_solution(self.positions, self.fitness)
         
-        return best_solution, best_fitness, history_best, trajectory
+        return best_solution, best_fitness, history_best, stats_history
 
 
 class FireflyKnapsackOptimizer(BaseOptimizer):
@@ -374,7 +381,7 @@ class FireflyKnapsackOptimizer(BaseOptimizer):
     
     def _flip_move_towards(self, i_sol: np.ndarray, j_sol: np.ndarray) -> np.ndarray:
         """
-        Apply bit flips to make i_sol more similar to j_sol (better solution).
+        Apply bit flips to make i_sol more similar to j_sol (brighter solution).
         """
         new_sol = i_sol.copy()
         num_items = len(i_sol)

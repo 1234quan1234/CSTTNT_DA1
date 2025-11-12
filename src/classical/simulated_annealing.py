@@ -11,7 +11,7 @@ References
 """
 
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 import logging
 import math  # Add math import for exp
 
@@ -161,8 +161,18 @@ class SimulatedAnnealingOptimizer(BaseOptimizer):
             z_clamped = max(z, -700.0)
             return math.exp(z_clamped)
     
-    def run(self, max_iter: int) -> Tuple[np.ndarray, float, List[float], List[np.ndarray]]:
-        """Run Simulated Annealing for max_iter iterations."""
+    def run(self, max_iter: int) -> Tuple[np.ndarray, float, List[float], List[Dict[str, float]]]:
+        """
+        Run Simulated Annealing for max_iter iterations.
+        
+        Returns
+        -------
+        best_solution : np.ndarray
+        best_fitness : float
+        history_best : List[float]
+        stats_history : List[Dict[str, float]]
+            For SA (single solution), diversity is always 0.
+        """
         # Initialize
         self.current_solution = self.problem.init_solution(self.rng, n=1)[0]
         self.current_solution = self._repair_knapsack(self.current_solution)
@@ -172,7 +182,7 @@ class SimulatedAnnealingOptimizer(BaseOptimizer):
         self.best_fitness = self.current_fitness
         
         history_best = []
-        trajectory = []
+        stats_history = []
         
         for iteration in range(max_iter):
             # Calculate temperature with clamping (no break)
@@ -197,16 +207,19 @@ class SimulatedAnnealingOptimizer(BaseOptimizer):
                     self.best_solution = self.current_solution.copy()
                     self.best_fitness = self.current_fitness
             
+            # For single-solution: no population diversity
+            stats_history.append({
+                'gen': iteration,
+                'best_fitness': float(self.best_fitness),
+                'mean_fitness': float(self.best_fitness),  # Same as best
+                'std_fitness': 0.0,  # No population
+                'diversity': 0.0  # No population
+            })
+            
             # Track progress
             history_best.append(self.best_fitness)
-            trajectory.append(self.current_solution.reshape(1, -1).copy())
         
-        return (
-            self.best_solution.copy(),
-            self.best_fitness,
-            history_best,
-            trajectory
-        )
+        return self.best_solution, self.best_fitness, history_best, stats_history
 
 
 if __name__ == "__main__":

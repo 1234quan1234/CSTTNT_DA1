@@ -456,7 +456,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Run Knapsack benchmark')
     parser.add_argument('--size', type=str, default='50',
-                        help='Instance size: 50, 100, 200, 500, or "all"')
+                        help='Instance size: 50, 100, 200 or "all"')
     parser.add_argument('--type', type=str, default='all',
                         choices=['all', 'uncorrelated', 'weakly', 'strongly', 'subset'],
                         help='Instance type')
